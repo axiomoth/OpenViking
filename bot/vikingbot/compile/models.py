@@ -16,6 +16,8 @@ DEFAULT_COMPILE_REASON = (
 )
 COMPILE_STAGING_ROOT = "__compile_staging__"
 COMPILE_WIKI_PAGE_ROOT = f"{COMPILE_STAGING_ROOT}/wiki_pages"
+COMPILE_MATERIALIZED_ROOT = "compile_resources"
+COMPILE_MANIFEST_NAME = "_manifest.tsv"
 OKF_VERSION = "0.1"
 TERMINAL_STATUSES = frozenset({"completed", "failed"})
 
@@ -30,7 +32,9 @@ class CompileLimits(BaseModel):
     skill_total_bytes: int = 32 * 1024 * 1024
     target_inventory_entries: int = 2000
     target_catalog_pages: int = 10
-    initial_prompt_chars: int = 200_000
+    initial_prompt_chars: int = 300_000
+    agent_context_chars: int = 240_000
+    agent_iterations: int = 60
     tool_uri_count: int = 32
     tool_result_bytes: int = 1024 * 1024
     tool_total_result_bytes: int = 8 * 1024 * 1024
@@ -90,7 +94,9 @@ class WikiPageDraft(BaseModel):
         default=None,
         description=(
             "Inline Markdown body for an actual Wiki page. Link relevant known source "
-            "URIs with ordinary Markdown links; never invent link targets."
+            "URIs with ordinary Markdown links; never invent link targets. For very large "
+            "bodies, write the Markdown to the workspace with write_file and submit "
+            "body_workspace_path instead."
         )
     )
     body_workspace_path: str | None = Field(
@@ -101,7 +107,11 @@ class WikiPageDraft(BaseModel):
         ),
     )
     source_ids: list[str] = Field(
-        description="Identifiers of supplied source roots that support this Wiki page."
+        default_factory=list,
+        description=(
+            "Identifiers of supplied source roots that support this Wiki page. Omit to "
+            "cite every supplied source root."
+        ),
     )
     tags: list[str] = Field(default_factory=list)
     path_hint: str | None = Field(
@@ -135,7 +145,11 @@ class CompileFileDraft(BaseModel):
     )
     content: str | None = Field(
         default=None,
-        description="Exact UTF-8 text file content, including any required frontmatter.",
+        description=(
+            "Exact UTF-8 text file content, including any required frontmatter. For very "
+            "large files, write the file to the workspace with write_file and submit "
+            "workspace_path instead."
+        ),
     )
     workspace_path: str | None = Field(
         default=None,
