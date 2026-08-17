@@ -8,17 +8,20 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
 from openviking.core.path_variables import resolve_path_variables
+from openviking.core.uri_validation import validate_request_viking_uri
 from openviking.server.auth import get_request_context
 from openviking.server.dependencies import get_service
 from openviking.server.identity import RequestContext
 from openviking.server.models import Response
 
 
-def _resolve_uri_or_uris(uri: Union[str, List[str]]) -> Union[str, List[str]]:
+def _resolve_uri_or_uris(
+    uri: Union[str, List[str]], ctx: RequestContext
+) -> Union[str, List[str]]:
     """Resolve path variables in a single URI or list of URIs."""
     if isinstance(uri, list):
-        return [resolve_path_variables(u) for u in uri]
-    return resolve_path_variables(uri)
+        return [validate_request_viking_uri(resolve_path_variables(u), ctx) for u in uri]
+    return validate_request_viking_uri(resolve_path_variables(uri), ctx)
 
 
 router = APIRouter(prefix="/api/v1/relations", tags=["relations"])
@@ -46,7 +49,7 @@ async def relations(
 ):
     """Get relations for a resource."""
     service = get_service()
-    uri = resolve_path_variables(uri)
+    uri = validate_request_viking_uri(resolve_path_variables(uri), _ctx)
     result = await service.relations.relations(uri, ctx=_ctx)
     return Response(status="ok", result=result)
 
@@ -58,8 +61,10 @@ async def link(
 ):
     """Create link between resources."""
     service = get_service()
-    from_uri = resolve_path_variables(request.from_uri)
-    to_uris = _resolve_uri_or_uris(request.to_uris)
+    from_uri = validate_request_viking_uri(
+        resolve_path_variables(request.from_uri), _ctx, field_name="from_uri"
+    )
+    to_uris = _resolve_uri_or_uris(request.to_uris, _ctx)
     await service.relations.link(from_uri, to_uris, ctx=_ctx, reason=request.reason)
     return Response(status="ok", result={"from": from_uri, "to": to_uris})
 
@@ -71,8 +76,12 @@ async def unlink(
 ):
     """Remove link between resources."""
     service = get_service()
-    from_uri = resolve_path_variables(request.from_uri)
-    to_uri = resolve_path_variables(request.to_uri)
+    from_uri = validate_request_viking_uri(
+        resolve_path_variables(request.from_uri), _ctx, field_name="from_uri"
+    )
+    to_uri = validate_request_viking_uri(
+        resolve_path_variables(request.to_uri), _ctx, field_name="to_uri"
+    )
     await service.relations.unlink(from_uri, to_uri, ctx=_ctx)
     return Response(status="ok", result={"from": from_uri, "to": to_uri})
 
@@ -93,8 +102,11 @@ async def build_graph(
     from openviking.session.memory.graph_view import MemoryGraph
 
     service = get_service()
-    space_uris = [resolve_path_variables(uri) for uri in request.space_uris]
-    output_uri = resolve_path_variables(request.output_uri)
+    space_uris = [
+        validate_request_viking_uri(resolve_path_variables(uri), _ctx)
+        for uri in request.space_uris
+    ]
+    output_uri = validate_request_viking_uri(resolve_path_variables(request.output_uri), _ctx)
     graph = MemoryGraph(viking_fs=service.viking_fs)
     graph_path = await graph.build_graph(space_uris, output_uri, ctx=_ctx)
     return Response(status="ok", result={"graph_uri": graph_path})

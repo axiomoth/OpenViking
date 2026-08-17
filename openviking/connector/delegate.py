@@ -189,8 +189,6 @@ class ConnectorDelegate:
 
         if ctx is not None and (to or parent):
             target = ContentTargetSpec.from_fields(
-                ctx=ctx,
-                kind="resource",
                 to=to,
                 parent=parent,
                 create_parent=bool((kwargs or {}).get("create_parent", False)),
@@ -329,8 +327,6 @@ class ConnectorDelegate:
         add_type, _ = resolved
 
         target = ContentTargetSpec.from_fields(
-            ctx=ctx,
-            kind="resource",
             to=to,
             create_parent=bool(kwargs.get("create_parent", False)),
         )

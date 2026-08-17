@@ -3,14 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Optional
+from typing import Optional
 
-from openviking.core.path_variables import resolve_path_variables
-from openviking.core.uri_validation import validate_optional_content_target_uri
 from openviking_cli.exceptions import InvalidArgumentError
-
-if TYPE_CHECKING:
-    from openviking.server.identity import RequestContext
 
 
 @dataclass(frozen=True)
@@ -25,28 +20,14 @@ class ContentTargetSpec:
     def from_fields(
         cls,
         *,
-        ctx: RequestContext,
-        kind: str,
         to: Optional[str] = None,
         parent: Optional[str] = None,
         create_parent: bool = False,
     ) -> "ContentTargetSpec":
-        resolved_to = resolve_path_variables(to) if to else None
-        resolved_parent = resolve_path_variables(parent) if parent else None
-        if (resolved_to or "").strip() and (resolved_parent or "").strip():
+        if (to or "").strip() and (parent or "").strip():
             raise InvalidArgumentError("Cannot specify both 'to' and 'parent' at the same time.")
         return cls(
-            to=validate_optional_content_target_uri(
-                resolved_to,
-                ctx,
-                kind=kind,
-                field_name="to",
-            ),
-            parent=validate_optional_content_target_uri(
-                resolved_parent,
-                ctx,
-                kind=kind,
-                field_name="parent",
-            ),
+            to=to or "",
+            parent=parent or "",
             create_parent=create_parent,
         )

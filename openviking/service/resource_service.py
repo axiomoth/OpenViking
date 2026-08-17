@@ -18,7 +18,6 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 from uuid import uuid4
 
 from openviking.core.content_targets import ContentTargetSpec
-from openviking.core.uri_validation import validate_optional_content_target_uri
 from openviking.parse.mode import ParseMode, normalize_parse_mode
 from openviking.parse.parsers.constants import MPEG_TS_EXTENSION_ALIAS
 from openviking.resource.feishu_watch_auth import (
@@ -268,12 +267,7 @@ class ResourceService:
                 watch_to = target.to
                 parent_uri = target.parent
                 if not watch_to:
-                    watch_to = validate_optional_content_target_uri(
-                        root_uri,
-                        ctx,
-                        kind="resource",
-                        field_name="root_uri",
-                    )
+                    watch_to = root_uri
                     parent_uri = None
                 if not watch_to:
                     raise InvalidArgumentError(
@@ -634,8 +628,6 @@ class ResourceService:
             )
 
         target = ContentTargetSpec.from_fields(
-            ctx=ctx,
-            kind="resource",
             to=to,
             parent=parent,
             create_parent=bool(kwargs.get("create_parent", False)),
@@ -1207,8 +1199,6 @@ class ResourceService:
         prepared_resource: Optional["LocalResource"] = None
         try:
             target = ContentTargetSpec.from_fields(
-                ctx=ctx,
-                kind="resource",
                 to=to,
                 parent=parent,
                 create_parent=bool(kwargs.get("create_parent", False)),
