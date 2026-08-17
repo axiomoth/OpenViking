@@ -21,6 +21,7 @@ from openviking.utils.skill_processor import validate_skill_name
 from openviking_cli.exceptions import OpenVikingError
 from vikingbot.agent.tools.base import Tool, ToolContext
 from vikingbot.compile.models import (
+    COMPILE_MATERIALIZED_ROOT,
     COMPILE_STAGING_ROOT,
     COMPILE_WIKI_PAGE_ROOT,
     CompileLimits,
@@ -111,7 +112,7 @@ class CompileScopedTool(Tool):
             if not value:
                 return "Error: Compile search requires target_uri within the task scope."
             uris.append(str(value))
-        elif self.name in {"openviking_list", "openviking_grep", "openviking_glob"}:
+        elif self.name in {"openviking_list", "openviking_grep", "openviking_glob", "openviking_export"}:
             value = kwargs.get("uri")
             if not value or str(value).rstrip("/") in {"viking:", "viking://"}:
                 return f"Error: Compile {self.name} requires uri within the task scope."
@@ -151,6 +152,17 @@ class CompileScopedTool(Tool):
         rendered = str(result)
         size = len(rendered.encode("utf-8"))
         if size > self._limits.tool_result_bytes:
+            if self.name == "openviking_multi_read":
+                return (
+                    "Error: Compile tool result exceeds the per-call size limit. Read a "
+                    "smaller window with a smaller limit, or use openviking_grep first to "
+                    "locate the relevant lines."
+                )
+            if self.name == "openviking_grep":
+                return (
+                    "Error: Compile tool result exceeds the per-call size limit. Narrow the "
+                    "pattern or scope the uri to a smaller subtree."
+                )
             return "Error: Compile tool result exceeds the per-call size limit."
         async with self._budget_lock:
             total = self._result_budget.get("bytes", 0) + size
@@ -306,25 +318,32 @@ class SubmitWikiBundleTool(Tool):
             bundle = WikiBundleDraft.model_validate(
                 {"pages": pages or [], "files": files or [], "links": raw_links}
             )
-            await self._validate_workspace_manifest(
+            warnings = await self._validate_workspace_manifest(
                 bundle,
                 tool_context=tool_context,
             )
             bundle = await self._materialize_page_bodies(bundle, tool_context=tool_context)
-            payloads = await self._validate_bundle(bundle, tool_context=tool_context)
+            payloads, bundle_warnings = await self._validate_bundle(
+                bundle, tool_context=tool_context
+            )
+            warnings.extend(bundle_warnings)
         except (ValidationError, ValueError) as exc:
             kind = "Skill" if self._is_skill_target else "Wiki"
             return f"Error: Invalid {kind} bundle: {exc}"
         self.bundle = bundle
         self.file_payloads = payloads
         if self._is_skill_target:
-            return (
+            summary = (
                 f"Skill bundle accepted for '{self.skill_name}' with {len(bundle.files)} file(s)."
             )
-        return (
-            f"Wiki bundle accepted with {len(bundle.pages)} page(s) and "
-            f"{len(bundle.files)} file(s)."
-        )
+        else:
+            summary = (
+                f"Wiki bundle accepted with {len(bundle.pages)} page(s) and "
+                f"{len(bundle.files)} file(s)."
+            )
+        if warnings:
+            summary += " Warnings: " + "; ".join(warnings)
+        return summary
 
     async def _list_workspace_files(
         self,
@@ -350,6 +369,8 @@ class SubmitWikiBundleTool(Tool):
                     raise ValueError("task workspace inventory limit exceeded")
                 if _path_is_within(relative, COMPILE_STAGING_ROOT):
                     continue
+                if _path_is_within(relative, COMPILE_MATERIALIZED_ROOT):
+                    continue
                 if name in {".git", "__pycache__"}:
                     continue
                 if is_dir:
@@ -363,9 +384,9 @@ class SubmitWikiBundleTool(Tool):
         bundle: WikiBundleDraft,
         *,
         tool_context: ToolContext,
-    ) -> None:
+    ) -> list[str]:
         if context_type_for_uri(self.target_uri) != "resource":
-            return
+            return []
         page_paths = {
             _normalize_workspace_path(page.body_workspace_path)
             for page in bundle.pages
@@ -377,6 +398,7 @@ class SubmitWikiBundleTool(Tool):
             if file.workspace_path is not None
         }
         errors: list[str] = []
+        warnings: list[str] = []
         invalid_pages = sorted(
             path for path in page_paths if not _path_is_within(path, COMPILE_WIKI_PAGE_ROOT)
         )
@@ -386,12 +408,12 @@ class SubmitWikiBundleTool(Tool):
                 f"{COMPILE_WIKI_PAGE_ROOT}/, not Skill artifact paths: " + ", ".join(invalid_pages)
             )
         invalid_artifacts = sorted(
-            path for path in artifact_paths if _path_is_within(path, COMPILE_STAGING_ROOT)
+            path for path in artifact_paths if _path_is_within(path, COMPILE_WIKI_PAGE_ROOT)
         )
         if invalid_artifacts:
             errors.append(
-                "Skill artifact workspace paths must remain outside the Compile staging "
-                "directory: " + ", ".join(invalid_artifacts)
+                "Skill artifact workspace paths must not use the Wiki page body area under "
+                f"{COMPILE_WIKI_PAGE_ROOT}/: " + ", ".join(invalid_artifacts)
             )
 
         if self.workspace_baseline is not None:
@@ -399,12 +421,19 @@ class SubmitWikiBundleTool(Tool):
             generated_artifacts = current_files - self.workspace_baseline
             missing_artifacts = sorted(generated_artifacts - artifact_paths)
             if missing_artifacts:
-                errors.append(
-                    "generated Skill artifacts are missing from files; preserve their "
-                    "required paths and submit them unchanged: " + ", ".join(missing_artifacts)
-                )
+                if self.require_workspace_files:
+                    errors.append(
+                        "generated Skill artifacts are missing from files; preserve their "
+                        "required paths and submit them unchanged: " + ", ".join(missing_artifacts)
+                    )
+                else:
+                    warnings.append(
+                        "workspace files were not submitted and will be ignored: "
+                        + ", ".join(missing_artifacts)
+                    )
         if errors:
             raise ValueError("; ".join(errors))
+        return warnings
 
     async def _read_workspace_bytes(
         self,
@@ -469,7 +498,7 @@ class SubmitWikiBundleTool(Tool):
 
     async def _validate_bundle(
         self, bundle: WikiBundleDraft, *, tool_context: ToolContext
-    ) -> list[bytes | None]:
+    ) -> tuple[list[bytes | None], list[str]]:
         target_type = context_type_for_uri(self.target_uri)
         if len(bundle.pages) > self.limits.output_pages:
             raise ValueError("page limit exceeded")
@@ -513,10 +542,14 @@ class SubmitWikiBundleTool(Tool):
                     f"it through files and create a separate Wiki body under "
                     f"{COMPILE_WIKI_PAGE_ROOT}/"
                 )
-            if not page.source_ids or any(
-                source_id not in self.source_ids for source_id in page.source_ids
-            ):
-                raise ValueError(f"page {page.page_id} has invalid source_ids")
+            source_ids = list(dict.fromkeys(source_id for source_id in page.source_ids if source_id))
+            if source_ids and any(source_id not in self.source_ids for source_id in source_ids):
+                valid = ", ".join(sorted(self.source_ids))
+                raise ValueError(
+                    f"page {page.page_id} source_ids must reference supplied source roots "
+                    f"(one of: {valid})"
+                )
+            page.source_ids = source_ids or sorted(self.source_ids)
             if page.update_uri:
                 final_uri = page.update_uri.rstrip("/")
                 if is_reserved_wiki_page_uri(final_uri):
@@ -590,6 +623,8 @@ class SubmitWikiBundleTool(Tool):
             self.skill_name = self._validate_skill_bundle(bundle, file_payloads)
         page_by_id = {page.page_id: page for page in bundle.pages}
         link_errors: list[str] = []
+        warnings: list[str] = []
+        valid_links: list[Any] = []
         for index, link in enumerate(bundle.links):
             prefix = f"links[{index}]"
             if link.f is None or link.t is None:
@@ -602,7 +637,7 @@ class SubmitWikiBundleTool(Tool):
                 link_errors.append(f"{prefix} endpoints must reference bundle pages")
                 continue
             if not link.match_text:
-                link_errors.append(f"{prefix} match_text is required")
+                warnings.append(f"{prefix} has no match_text and was dropped")
                 continue
             source_page = page_by_id[link.f]
             if not LinkRenderer.can_render_link(
@@ -611,14 +646,16 @@ class SubmitWikiBundleTool(Tool):
                 page_uris[link.f],
                 page_uris[link.t],
             ):
-                link_errors.append(
-                    f"{prefix} from page {link.f} has unsatisfied anchor "
-                    f"{link.match_text!r}; use exact unprotected text or an existing "
-                    f"Markdown link to page {link.t}"
+                warnings.append(
+                    f"{prefix} anchor {link.match_text!r} was not found and the link was "
+                    "dropped"
                 )
+                continue
+            valid_links.append(link)
         if link_errors:
             raise ValueError(f"{len(link_errors)} invalid link(s): " + "; ".join(link_errors))
-        return file_payloads
+        bundle.links = valid_links
+        return file_payloads, warnings
 
     async def _is_wiki_uri(self, uri: str) -> bool:
         if uri in self.catalog_uris:
@@ -680,4 +717,7 @@ class SubmitWikiBundleTool(Tool):
         return skill_name
 
 
-__all__ = ["CompileScopedTool", "SubmitWikiBundleTool"]
+__all__ = [
+    "CompileScopedTool",
+    "SubmitWikiBundleTool",
+]
