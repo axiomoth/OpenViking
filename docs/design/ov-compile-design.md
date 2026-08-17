@@ -48,7 +48,7 @@ ov compile \
 | `--reason` | 可选，本次整理任务的描述 |
 | `--wait` | 可选，等待任务完成 |
 | `--timeout` | 可选，仅与 `--wait` 一起使用；只限制 CLI 等待时间，不取消任务 |
-| `--runtime-timeout` | 可选，正数且有限的服务端运行时限；只能缩短服务端最大值（默认 40 分钟） |
+| `--runtime-timeout` | 可选，正数且有限的服务端运行时限；只能缩短服务端最大值（默认 60 分钟） |
 
 参数在 OpenViking 用户身份下 canonicalize 后满足以下约束：
 
@@ -188,7 +188,7 @@ VikingBot 负责规范化参数并计算实际任务描述：
 effective_reason = (request.reason or "").strip() or DEFAULT_COMPILE_REASON
 ```
 
-可选的 `runtime_timeout_seconds` 必须为正数且有限，并且只能缩短 `CompileLimits.task_runtime_seconds` 定义的服务端最大值（默认 2400 秒）；超限请求在创建任务时以 `RESOURCE_EXHAUSTED` 拒绝。
+可选的 `runtime_timeout_seconds` 必须为正数且有限，并且只能缩短 `CompileLimits.task_runtime_seconds` 定义的服务端最大值（默认 3600 秒）；超限请求在创建任务时以 `RESOURCE_EXHAUSTED` 拒绝。
 
 ### 4.2 查询任务
 
@@ -327,11 +327,29 @@ compile_tools = available_tools ∩ (_COMPILE_CORE_TOOLS ∪ _OV_READ_TOOLS)
 request_tools = compile_tools + submit_wiki_bundle
 ```
 
-`_COMPILE_CORE_TOOLS` 固定为 `read_file`、`write_file`、`edit_file` 和 `exec`；`_OV_READ_TOOLS` 固定为 `openviking_list`、`openviking_search`、`openviking_grep`、`openviking_glob` 和 `openviking_multi_read`。OpenViking 工具仍受用户权限和 Compile URI scope 限制，本地文件和 shell 工具仍受 task workspace 与 sandbox policy 限制。
+`_COMPILE_CORE_TOOLS` 固定为 `read_file`、`write_file`、`edit_file` 和 `exec`；`_OV_READ_TOOLS` 固定为 `openviking_list`、`openviking_search`、`openviking_grep`、`openviking_glob`、`openviking_multi_read` 和 `openviking_export`。OpenViking 工具仍受用户权限和 Compile URI scope 限制，本地文件和 shell 工具仍受 task workspace 与 sandbox policy 限制。
 
 Compile 不使用 Skill 的 `allowed-tools` 推导、授权或限制工具，也不为 Skill 连接 MCP。该字段可作为其他 Skill 宿主的兼容 metadata 保留。Skill 需要飞书、方舟等外部能力时，通过 `exec` 调用 task sandbox 中预装的 CLI；可选的 `requires.bins/env` 只用于提前检查运行条件，不负责安装 CLI 或依赖。
 
-固定 allowlist 已排除 `message`、`cron`、`spawn`、Web、image、MCP 和 OpenViking 写入/提交工具，无需维护额外 blocklist。`exec` 仍可能产生外部副作用；现有 `direct` sandbox 只提供 task cwd，不是 OS 级隔离。`bot.sandbox.backends.direct.allow_compile_exec` 默认为 `false`，使用 `direct` 时 Compile 仍可通过文件工具完成普通整理，但工具集中不会注册 `exec`；声明 `requires.bins` 或 `requires.env` 的 Skill 会在执行任何命令探测前返回 `SKILL_CAPABILITY_UNAVAILABLE`。将该选项设为 `true` 是明确的不安全 opt-in；生产或多用户部署应使用配置了文件系统和网络 policy 的隔离 backend。
+固定 allowlist 已排除 `message`、`cron`、`spawn`、Web、image、MCP 和 OpenViking 写入/提交工具，无需维护额外 blocklist。`exec` 仍可能产生外部副作用；现有 `direct` sandbox 只提供 task cwd，不是 OS 级隔离。`bot.sandbox.backends.direct.allow_compile_exec` 默认为 `true`（Compile 工具链开源，`exec` 默认直接以用户 shell 权限运行），使用 `direct` 时 Compile 工具集默认注册 `exec`；普通整理任务仍可通过文件工具完成。声明 `requires.bins` 或 `requires.env` 的 Skill 会先探测命令；如需关闭 `exec`，可显式设为 `false`，此时此类 Skill 会在执行任何命令探测前返回 `SKILL_CAPABILITY_UNAVAILABLE`。生产或多用户部署应使用配置了文件系统和网络 policy 的隔离 backend。
+
+### 6.5 结构感知探索（survey → 定向精读）
+
+Compile 不采用“每个文件读开头 N 行”的线性扫描（开头几行通常是 `session_meta`/文件头/import，几乎不含信号，还会误导 Agent 把中段内容判为低价值）。它也不在代码里实现确定性结构采样器，而是改为 **纯 prompt 教会模型用已有工具做 survey → 定向精读**，与 Claude Code / Codex 探索陌生语料的方式一致：
+
+1. **先看目录结构**：用 `openviking_list`（recursive）或 `openviking_glob` 拿文件清单（路径/大小/扩展名）。
+2. **分层采样几个文件**：跨目录/扩展名/大小，用 `openviking_multi_read` 的 offset/limit 读 **head + middle + tail 三个窗口**（不是只读头几行），理解每个文件的格式、正文分布与内容大致区间。
+3. **推断结构（靠模型自己，不靠代码代劳）**：JSONL 每行一条记录、判别字段是什么、哪些字段承载长文本；Markdown 的 heading 结构等。
+4. **定向精读**：用 `openviking_grep` 定位信号、`openviking_multi_read` 窗口读，或（已物化到 `compile_resources/` 的）用 `exec` 跑 jq/grep/sed/python 读中段；明确禁止只凭文件头几行判断价值。
+5. **一次性写输出**：所有输出文件尽量在一个回复里用多个 `write_file` 写完。
+
+覆盖语义与 Codex 对齐：**没有任何逐文件覆盖门禁或读取追踪**。物化文件与未物化文件都不做运行时“是否读过”校验；模型在 prompt 指导下自行保证“未物化（二进制/下载失败）的源文件提交前用 `openviking_*` 读工具读过”。
+
+### 6.6 物化与来源采样
+
+物化与 `to` 类型解耦：只要有 sandbox（`--to` 为 resource/memory/skill 均满足），`--from` 的所有源文件都会 eager 物化到 `compile_resources/<source_id>/...`（无单文件/总字节上限；二进制与下载失败文件记为未物化，URI → 本地路径映射记录在 `compile_resources/_manifest.tsv`）。物化让模型能用 `exec` 本地 grep/jq/python 扫文件，而不是逐个 round-trip 到 OpenViking server。memory/skill 目标同样物化。salvage 仍仅 resource 目标（memory 只支持 Wiki pages、skill 走原子 add/update，均无“捞 workspace 产物”语义）。
+
+来源清单（`_build_sources`）生成每源紧凑清单（文件数、字节数、扩展名分布，作为 prompt 里的 Source inventory），模型据此在 prompt 指导下自行完成 survey 与定向精读。
 
 ## 7. AgentLoop 输出协议
 
@@ -556,7 +574,7 @@ Bot 当前没有通用的持久化后台任务管理器，因此这里实现一�
 
 运行中任务目录可以保存有大小限制的 Skill 快照、catalog 和 draft，但不能保存用户凭证。任务进入终态后删除 workspace、Skill snapshot 和 draft；task/result/error JSON 最长保留 24 小时且最多保留 1,000 条，启动和任务结束时都会清理。
 
-VikingBot 使用独立的 compile 并发限制，并对同一 canonical 目标目录串行执行。accepted task 最多排队 60 分钟，取得 target lock 和全局执行 slot 后才开始计算 runtime；服务端最大值和缺省值均为 40 分钟，客户端只能请求更短的时限，超限请求以 `RESOURCE_EXHAUSTED` 拒绝。只有 Agent 阶段的 runtime deadline 和迭代上限允许 salvage；salvage 与 cleanup 各自受独立的短 grace deadline 约束，rendering/writing/refreshing 阶段超时直接失败。该锁只减少同一 Bot 进程内的浪费；跨进程或人工写入冲突仍由 batch-write 的 tree lock 和 content hash 检查解决。v1 task store 以单个 VikingBot gateway 进程为部署边界，不承诺多副本共享 task 查询。
+VikingBot 使用独立的 compile 并发限制，并对同一 canonical 目标目录串行执行。accepted task 最多排队 60 分钟，取得 target lock 和全局执行 slot 后才开始计算 runtime；服务端最大值和缺省值均为 60 分钟，客户端只能请求更短的时限，超限请求以 `RESOURCE_EXHAUSTED` 拒绝。只有 Agent 阶段的 runtime deadline 和迭代上限允许 salvage；salvage 与 cleanup 各自受独立的短 grace deadline 约束，rendering/writing/refreshing 阶段超时直接失败。该锁只减少同一 Bot 进程内的浪费；跨进程或人工写入冲突仍由 batch-write 的 tree lock 和 content hash 检查解决。v1 task store 以单个 VikingBot gateway 进程为部署边界，不承诺多副本共享 task 查询。
 
 VikingBot 启动时把 store 中所有非终态任务统一标记为 `BOT_RESTARTED`，包括处于 committing 的任务；因为 API key 不落盘，重启后不能安全恢复原任务。用户可以重新提交，batch-write 通过最终 content hash 跳过已落盘内容并继续收敛。
 
@@ -572,7 +590,7 @@ v1 先使用集中定义、可测试的 `CompileLimits`，不把常量散落在 
 | initial prompt characters | 200,000 |
 | tool URI count / 单次结果 / 任务累计结果 | 32 / 1 MiB / 8 MiB |
 | output pages / files / combined operations / 最终总大小 | 128 / 128 / 256 / 4 MiB |
-| concurrent Compile tasks / task runtime maximum and default | 10 / 40 min |
+| concurrent Compile tasks / task runtime maximum and default | 10 / 60 min |
 | salvage / cleanup grace | 120 sec / 40 sec |
 | accepted tasks（全局 / 单 principal）/ queue wait | 40 / 10 / 60 min |
 | terminal task retention / records | 24 h / 1,000 |

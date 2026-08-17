@@ -1052,7 +1052,7 @@ enum Commands {
     },
     /// [Interactive] Compile source materials with a VikingBot Skill
     Compile {
-        /// Source directory; repeat the flag or separate directories with commas
+        /// Source file or directory; repeat the flag or separate entries with commas
         #[arg(
             long = "from",
             required = true,

@@ -6,9 +6,21 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from vikingbot.agent.loop import AgentIterationLimitExceeded, AgentLoop
+from vikingbot.agent.loop import (
+    AgentIterationLimitExceeded,
+    AgentLoop,
+    render_budget_reminder,
+)
 from vikingbot.agent.tools.base import Tool, ToolContext
-from vikingbot.agent.tools.compile import CompileScopedTool, SubmitWikiBundleTool
+from vikingbot.agent.tools.compile import (
+    CompileScopedTool,
+    SubmitWikiBundleTool,
+)
+from vikingbot.agent.tools.ov_file import (
+    VikingExportTool,
+    VikingMultiReadTool,
+    local_path_for_viking_uri,
+)
 from vikingbot.agent.tools.registry import ToolRegistry
 from vikingbot.compile.models import (
     DEFAULT_COMPILE_REASON,
@@ -20,6 +32,11 @@ from vikingbot.compile.models import (
     SanitizedCompileRequest,
     WikiBundleDraft,
     utc_now,
+)
+from vikingbot.compile.readlist import (
+    READLIST_PATH,
+    ReadlistTracker,
+    ReadTrackingTool,
 )
 from vikingbot.compile.renderer import WikiRenderer, content_hash, wiki_page_path_from_title
 from vikingbot.compile.service import BotCompileService, CompileCapabilities
@@ -122,6 +139,7 @@ def test_compile_limit_defaults_match_the_resource_envelope():
     assert limits.accepted_tasks_per_principal == 10
     assert limits.queue_wait_seconds == 60 * 60
     assert limits.task_runtime_seconds == 40 * 60
+    assert limits.agent_iterations == 60
     assert limits.salvage_grace_seconds == 120
     assert limits.cleanup_grace_seconds == 40
     assert limits.target_inventory_entries == 2000
@@ -129,7 +147,7 @@ def test_compile_limit_defaults_match_the_resource_envelope():
     assert limits.output_pages == 128
     assert limits.output_files == 128
     assert limits.output_operations == 256
-    assert DirectBackendConfig().allow_compile_exec is False
+    assert DirectBackendConfig().allow_compile_exec is True
 
 
 def test_compile_request_schema_defers_runtime_max_but_requires_positive_finite_seconds():
@@ -855,8 +873,9 @@ async def test_submit_tool_rejects_protected_anchor_and_path_collision():
         ],
         links=[{"f": 1, "t": 2, "match_text": "Two"}],
     )
-    assert protected.startswith("Error:")
-    assert tool.bundle is None
+    assert protected.startswith("Wiki bundle accepted")
+    assert "was not found and the link was dropped" in protected
+    assert tool.bundle is not None and tool.bundle.links == []
 
     accepted = await tool.execute(context, pages=[], links=[])
     assert not accepted.startswith("Error:")
@@ -904,8 +923,9 @@ async def test_submit_tool_accepts_existing_link_only_when_target_matches():
         ],
         links=[{"f": 1, "t": 2, "match_text": "行为标签库"}],
     )
-    assert "unsatisfied anchor '行为标签库'" in rejected
-    assert tool.bundle is None
+    assert rejected.startswith("Wiki bundle accepted")
+    assert "was not found and the link was dropped" in rejected
+    assert tool.bundle is not None and tool.bundle.links == []
 
 
 @pytest.mark.asyncio
@@ -997,7 +1017,32 @@ async def test_submit_tool_resolves_existing_updates_outside_relevant_catalog():
 
 
 @pytest.mark.asyncio
-async def test_submit_tool_reports_all_invalid_links():
+async def test_submit_tool_reports_structurally_invalid_links():
+    tool = SubmitWikiBundleTool(
+        source_ids={"src_1"},
+        catalog_uris=set(),
+        target_uri="viking://resources/wiki",
+        limits=CompileLimits(),
+    )
+
+    result = await tool.execute(
+        ToolContext(),
+        pages=[_page(1, "One"), _page(2, "Two")],
+        links=[
+            {"f": 1, "t": 2, "match_text": "Two"},
+            {"f": 1, "t": 1, "match_text": "One"},
+            {"f": 1, "t": 3, "match_text": "Three"},
+        ],
+    )
+
+    assert result.startswith("Error: Invalid Wiki bundle: 2 invalid link(s):")
+    assert "links[1] must not be a self-link" in result
+    assert "links[2] endpoints must reference bundle pages" in result
+    assert tool.bundle is None
+
+
+@pytest.mark.asyncio
+async def test_submit_tool_drops_unrenderable_links_instead_of_failing():
     tool = SubmitWikiBundleTool(
         source_ids={"src_1"},
         catalog_uris=set(),
@@ -1018,10 +1063,539 @@ async def test_submit_tool_reports_all_invalid_links():
         ],
     )
 
-    assert result.startswith("Error: Invalid Wiki bundle: 2 invalid link(s):")
-    assert "links[0] from page 1 has unsatisfied anchor 'Missing One'" in result
-    assert "links[1] from page 1 has unsatisfied anchor 'Missing Two'" in result
-    assert tool.bundle is None
+    assert result.startswith("Wiki bundle accepted with 3 page(s)")
+    assert "was not found and the link was dropped" in result
+    assert tool.bundle is not None
+    assert tool.bundle.links == []
+
+
+@pytest.mark.asyncio
+async def test_submit_tool_accepts_inline_content_by_default():
+    tool = SubmitWikiBundleTool(
+        source_ids={"src_1"},
+        catalog_uris=set(),
+        target_uri="viking://resources/wiki",
+        limits=CompileLimits(),
+    )
+
+    page_schema = tool.parameters["$defs"]["WikiPageDraft"]
+    file_schema = tool.parameters["$defs"]["CompileFileDraft"]
+    assert "body_markdown" in page_schema["properties"]
+    assert "body_workspace_path" in page_schema["properties"]
+    assert "content" in file_schema["properties"]
+    assert "workspace_path" in file_schema["properties"]
+
+    result = await tool.execute(
+        ToolContext(),
+        pages=[_page(1, "Home")],
+        files=[{"path": "extra/notes.yaml", "content": "kind: notes\n"}],
+    )
+
+    assert result == "Wiki bundle accepted with 1 page(s) and 1 file(s)."
+    assert tool.bundle is not None
+    assert tool.bundle.pages[0].body_markdown == "Body for Home"
+    assert tool.bundle.files[0].content == "kind: notes\n"
+
+
+@pytest.mark.asyncio
+async def test_multi_read_hints_on_large_files_and_supports_offset_limit(monkeypatch):
+    class FakeClient:
+        def __init__(self):
+            self.calls = []
+
+        async def stat(self, uri):
+            return {"size": 2 * 1024 * 1024, "isDir": False}
+
+        async def read_content(self, uri, level="abstract", user_id=None, offset=0, limit=-1):
+            self.calls.append((uri, offset, limit))
+            return f"window:{offset}:{limit}"
+
+    tool = VikingMultiReadTool()
+    fake = FakeClient()
+
+    async def fake_get_client(ctx):
+        return fake
+
+    async def no_release(ctx, client):
+        return None
+
+    monkeypatch.setattr(tool, "_get_client", fake_get_client)
+    monkeypatch.setattr(tool, "_release_client", no_release)
+
+    large = await tool.execute(ToolContext(), uris=["viking://resources/big.jsonl"])
+    assert "reading it fully would exceed" in large
+    assert fake.calls == []
+
+    window = await tool.execute(
+        ToolContext(), uris=["viking://resources/big.jsonl"], offset=10, limit=20
+    )
+    assert "window:10:20" in window
+    assert fake.calls == [("viking://resources/big.jsonl", 10, 20)]
+
+
+class _RecordingSandbox:
+    def __init__(self):
+        self.writes = []
+
+    async def write_file(self, path, content):
+        self.writes.append((path, content))
+
+
+async def _export_into_sandbox(monkeypatch, client, *, uri: str, dest: str = "compile_resources"):
+    """Run VikingExportTool against a fake client; returns (result, sandbox writes)."""
+    class Manager:
+        def __init__(self, sandbox):
+            self.sandbox = sandbox
+
+        async def get_sandbox(self, session_key):
+            return self.sandbox
+
+    tool = VikingExportTool()
+    sandbox = _RecordingSandbox()
+
+    async def fake_get_client(ctx):
+        return client
+
+    async def no_release(ctx, client_):
+        return None
+
+    monkeypatch.setattr(tool, "_get_client", fake_get_client)
+    monkeypatch.setattr(tool, "_release_client", no_release)
+    context = ToolContext(
+        session_key=SessionKey(type="compile", channel_id="cmp", chat_id="cmp"),
+        sandbox_manager=Manager(sandbox),
+    )
+    result = await tool.execute(context, uri=uri, dest=dest)
+    return result, sandbox.writes
+
+
+@pytest.mark.asyncio
+async def test_export_materializes_sources_into_workspace(monkeypatch):
+    class FakeClient:
+        async def stat(self, uri):
+            return {"size": 3, "isDir": False}
+
+        async def list_resources(self, path, recursive, node_limit):
+            return [{"uri": "viking://resources/s/rollout.jsonl"}]
+
+        async def download_bytes(self, uri):
+            return b'{"type":"event_msg","payload":{"type":"user_message","message":"hi"}}\n'
+
+    result, writes = await _export_into_sandbox(
+        monkeypatch, FakeClient(), uri="viking://resources/s/rollout.jsonl"
+    )
+    assert "Exported 1 file" in result
+    assert writes == [
+        (
+            "compile_resources/s/rollout.jsonl",
+            '{"type":"event_msg","payload":{"type":"user_message","message":"hi"}}\n',
+        )
+    ]
+    assert "jq/wc/grep" in result
+
+
+@pytest.mark.asyncio
+async def test_export_directory_strips_namespace_and_skips_binary(monkeypatch):
+    class FakeClient:
+        async def stat(self, uri):
+            return {"size": 0, "isDir": uri.endswith("/dream-sessions")}
+
+        async def list_resources(self, path, recursive, node_limit):
+            return [
+                {"uri": "viking://resources/dream-sessions/08/05/a.jsonl", "size": 100, "isDir": False},
+                {"uri": "viking://resources/dream-sessions/08/05/b.bin", "size": 50, "isDir": False},
+            ]
+
+        async def download_bytes(self, uri):
+            if uri.endswith(".bin"):
+                return b"\xff\xfe\x00"  # invalid UTF-8 -> binary, skipped
+            return b'{"type":"event_msg","payload":{"type":"user_message","message":"hi"}}\n'
+
+    result, writes = await _export_into_sandbox(
+        monkeypatch,
+        FakeClient(),
+        uri="viking://resources/dream-sessions",
+    )
+    # viking://resources/... is stripped to dream-sessions/... under compile_resources/
+    assert writes == [
+        (
+            "compile_resources/dream-sessions/08/05/a.jsonl",
+            '{"type":"event_msg","payload":{"type":"user_message","message":"hi"}}\n',
+        )
+    ]
+    assert "Skipped 1 non-UTF-8" in result
+
+
+@pytest.mark.asyncio
+async def test_export_reports_when_single_file_exceeds_byte_budget(monkeypatch):
+    class FakeClient:
+        async def stat(self, uri):
+            return {"size": 100, "isDir": False}
+
+        async def list_resources(self, path, recursive, node_limit):
+            return []
+
+        async def download_bytes(self, uri):
+            return b"x" * 10
+
+    monkeypatch.setattr(VikingExportTool, "_MAX_TOTAL_BYTES", 25)
+    result, writes = await _export_into_sandbox(
+        monkeypatch, FakeClient(), uri="viking://resources/a.jsonl"
+    )
+    assert "would exceed the total-byte budget" in result
+    assert writes == []
+
+
+@pytest.mark.asyncio
+async def test_export_reports_mid_run_byte_budget_hit(monkeypatch):
+    class FakeClient:
+        async def stat(self, uri):
+            return {"size": 10, "isDir": uri.endswith("/bigdir")}
+
+        async def list_resources(self, path, recursive, node_limit):
+            return [
+                {"uri": f"viking://resources/bigdir/f{i}.jsonl", "size": 10, "isDir": False}
+                for i in range(5)
+            ]
+
+        async def download_bytes(self, uri):
+            return b'{"ok":true}\n'
+
+    monkeypatch.setattr(VikingExportTool, "_MAX_TOTAL_BYTES", 25)
+    result, writes = await _export_into_sandbox(
+        monkeypatch, FakeClient(), uri="viking://resources/bigdir"
+    )
+    assert "NOTE: stopped before the total-byte budget" in result
+    assert len(writes) == 2
+
+
+@pytest.mark.asyncio
+async def test_export_reports_listing_cap(monkeypatch):
+    class FakeClient:
+        async def stat(self, uri):
+            return {"size": 0, "isDir": uri.endswith("/bigdir")}
+
+        async def list_resources(self, path, recursive, node_limit):
+            return [
+                {"uri": f"viking://resources/bigdir/f{i}.jsonl", "size": 1, "isDir": False}
+                for i in range(10)
+            ]
+
+        async def download_bytes(self, uri):
+            return b'{"ok":true}\n'
+
+    monkeypatch.setattr(VikingExportTool, "_MAX_FILES", 3)
+    result, writes = await _export_into_sandbox(
+        monkeypatch, FakeClient(), uri="viking://resources/bigdir"
+    )
+    assert "NOTE: the source listing was capped at 3 entries" in result
+    assert len(writes) == 3
+
+
+class _FakeChatProvider:
+    """Minimal provider stub whose chat() returns a fixed summary and counts calls."""
+
+    def __init__(self, content: str):
+        self.content = content
+        self.calls = 0
+
+    async def chat(self, messages, tools, model, temperature, session_id, **kwargs):
+        del messages, tools, model, temperature, session_id, kwargs
+        self.calls += 1
+        return SimpleNamespace(content=self.content, reasoning_content=None, usage={})
+
+
+class _FakeCompileSessionKey:
+    def safe_name(self):
+        return "cmp"
+
+
+def _compact_loop(provider):
+    loop = object.__new__(AgentLoop)
+    loop.provider = provider
+    loop.model = "m"
+    return loop
+
+
+@pytest.mark.asyncio
+async def test_compact_tool_loop_summarizes_and_truncates():
+    loop = _compact_loop(_FakeChatProvider("KEY FINDINGS"))
+
+    messages = [
+        {"role": "system", "content": "SYS"},
+        {"role": "user", "content": "TASK"},
+        {"role": "assistant", "content": "call1"},
+        {"role": "user", "content": "result1 " + "x" * 500},
+        {"role": "assistant", "content": "call2"},
+        {"role": "user", "content": "result2"},
+    ]
+    out = await loop._compact_tool_loop(messages, _FakeCompileSessionKey())
+
+    assert out[0] == {"role": "system", "content": "SYS"}
+    assert out[1] == {"role": "user", "content": "TASK"}
+    assert out[2]["content"].startswith("[Context compaction]")
+    assert "KEY FINDINGS" in out[2]["content"]
+    # A rolling window of the most recent complete turns is retained verbatim
+    # (not just the last two arbitrary messages).
+    assert out[3:] == messages[-3:]
+
+
+@pytest.mark.asyncio
+async def test_compact_tool_loop_keeps_tool_turns_atomic():
+    loop = _compact_loop(_FakeChatProvider("SUMMARY"))
+
+    messages = [
+        {"role": "system", "content": "SYS"},
+        {"role": "user", "content": "TASK"},
+        # old tool turn (summarized away)
+        {
+            "role": "assistant",
+            "content": "read",
+            "tool_calls": [
+                {
+                    "id": "c1",
+                    "type": "function",
+                    "function": {"name": "read_file", "arguments": "{}"},
+                }
+            ],
+        },
+        {"role": "tool", "tool_call_id": "c1", "name": "read_file", "content": "old content"},
+        {"role": "user", "content": "Reflect on the results and decide next steps."},
+        # recent tool turn (kept verbatim)
+        {
+            "role": "assistant",
+            "content": "write",
+            "tool_calls": [
+                {
+                    "id": "c2",
+                    "type": "function",
+                    "function": {"name": "write_file", "arguments": "{}"},
+                }
+            ],
+        },
+        {"role": "tool", "tool_call_id": "c2", "name": "write_file", "content": "done"},
+        {"role": "user", "content": "Reflect on the results and decide next steps."},
+    ]
+    out = await loop._compact_tool_loop(messages, _FakeCompileSessionKey())
+
+    assert out[2]["content"].startswith("[Context compaction]")
+    assert "SUMMARY" in out[2]["content"]
+    # The retained window keeps the assistant tool-call together with its tool
+    # result; a dangling `tool` message is never emitted.
+    window = out[3:]
+    roles = [m["role"] for m in window]
+    assert roles == ["user", "assistant", "tool", "user"]
+    assistant_idx = roles.index("assistant")
+    assert window[assistant_idx]["tool_calls"][0]["id"] == "c2"
+    assert window[assistant_idx + 1]["role"] == "tool"
+    assert window[assistant_idx + 1]["tool_call_id"] == "c2"
+    assert "c1" not in {m.get("tool_call_id") for m in window}
+
+
+@pytest.mark.asyncio
+async def test_compact_tool_loop_incremental_merges_previous_note():
+    provider = _FakeChatProvider("NEW SUMMARY")
+    loop = _compact_loop(provider)
+
+    messages = [
+        {"role": "system", "content": "SYS"},
+        {"role": "user", "content": "TASK"},
+        {"role": "user", "content": "[Context compaction]\n## Key facts & progress\nold facts"},
+        {"role": "assistant", "content": "intermediate action"},
+        {"role": "user", "content": "intermediate result"},
+        {"role": "assistant", "content": "recent action"},
+        {"role": "user", "content": "recent result"},
+    ]
+    out = await loop._compact_tool_loop(messages, _FakeCompileSessionKey())
+
+    # Only one summarization call: the previous note is reused verbatim and only
+    # the region since it is summarized.
+    assert provider.calls == 1
+    note = out[2]["content"]
+    assert note.startswith("[Context compaction]")
+    assert "old facts" in note
+    assert "NEW SUMMARY" in note
+    assert out[3:] == messages[-3:]
+
+
+@pytest.mark.asyncio
+async def test_compact_tool_loop_chunks_large_transcript_and_merges():
+    loop = _compact_loop(_FakeChatProvider("SEGMENT"))
+
+    # Build enough history that the transcript spans multiple summarization chunks
+    # (each chunk is capped at 32k chars; each message at 6k).
+    messages = [
+        {"role": "system", "content": "SYS"},
+        {"role": "user", "content": "TASK"},
+    ]
+    for _ in range(20):
+        messages.append({"role": "assistant", "content": "step " + "y" * 6_000})
+        messages.append({"role": "user", "content": "result " + "z" * 6_000})
+
+    out = await loop._compact_tool_loop(messages, _FakeCompileSessionKey(), budget_chars=20_000)
+
+    assert out[2]["content"].startswith("[Context compaction]")
+    assert "SEGMENT" in out[2]["content"]
+    # Budget-aware window: at least one complete recent turn is retained and the
+    # compacted result fits the (small) budget.
+    assert sum(len(json.dumps(m, ensure_ascii=False)) for m in out) <= 20_000
+    assert out[3:][0]["role"] in {"user", "assistant"}
+
+
+@pytest.mark.asyncio
+async def test_compact_tool_loop_keeps_system_messages_and_preserves_budget_churn_free():
+    loop = _compact_loop(_FakeChatProvider("SUMMARY"))
+
+    messages = [
+        {"role": "system", "content": "SYS"},
+        {"role": "user", "content": "TASK"},
+        {"role": "user", "content": "[Context compaction]\n## Key facts\nold facts"},
+        {"role": "assistant", "content": "recent action"},
+        {"role": "user", "content": "recent result"},
+    ]
+    # Not enough history since the last compaction to warrant a new summarization
+    # call: re-emits the existing (small) state without churn.
+    out = await loop._compact_tool_loop(messages, _FakeCompileSessionKey())
+    assert out == messages
+
+
+def test_local_path_for_viking_uri_drops_namespace_prefix():
+    assert local_path_for_viking_uri("viking://resources/a/b.md") == "a/b.md"
+    assert local_path_for_viking_uri("viking://user/alice/resources/a/b.md") == "a/b.md"
+    assert local_path_for_viking_uri("viking://user/alice/skills/s/guide.md") == "s/guide.md"
+    assert local_path_for_viking_uri("viking://resources/sessions/x.jsonl") == "sessions/x.jsonl"
+
+
+@pytest.mark.asyncio
+async def test_materialize_sources_exports_full_tree_and_writes_manifest():
+    service = object.__new__(BotCompileService)
+    service.limits = CompileLimits()
+
+    class Client:
+        async def download_bytes(self, uri):
+            if uri.endswith("a.jsonl"):
+                return b'{"type":"event_msg","payload":{"message":"hi"}}\n'
+            if uri.endswith("b.bin"):
+                return b"\xff\xfe\x00"
+            return b"# guide\n"
+
+    class Sandbox:
+        def __init__(self):
+            self.writes = {}
+
+        async def write_file(self, path, content):
+            self.writes[path] = content
+
+    sources = [
+        {
+            "source_id": "src_1",
+            "directory_uri": "viking://resources/dream-sessions",
+            "entries": [
+                {
+                    "uri": "viking://resources/dream-sessions/08/05/a.jsonl",
+                    "is_dir": False,
+                    "size": 40,
+                },
+                {
+                    "uri": "viking://resources/dream-sessions/08/05/b.bin",
+                    "is_dir": False,
+                    "size": 3,
+                },
+                {"uri": "viking://resources/dream-sessions/08/05", "is_dir": True},
+            ],
+        },
+        {
+            "source_id": "src_2",
+            "directory_uri": "viking://resources/dream-memory-store",
+            "entries": [
+                {
+                    "uri": "viking://resources/dream-memory-store/guide.md",
+                    "is_dir": False,
+                    "size": 9,
+                }
+            ],
+        },
+    ]
+    sandbox = Sandbox()
+    warnings, manifest_path = await service._materialize_sources(
+        client=Client(),
+        sources=sources,
+        sandbox=sandbox,
+    )
+
+    assert warnings == []
+    assert manifest_path == "compile_resources/_manifest.tsv"
+    assert sandbox.writes["compile_resources/src_1/dream-sessions/08/05/a.jsonl"] == (
+        '{"type":"event_msg","payload":{"message":"hi"}}\n'
+    )
+    assert sandbox.writes["compile_resources/src_2/dream-memory-store/guide.md"] == "# guide\n"
+    assert "b.bin" not in sandbox.writes
+    manifest = sandbox.writes["compile_resources/_manifest.tsv"]
+    assert "source_id\turi\tworkspace_path\tsize\tstatus" in manifest
+    assert "skipped:binary" in manifest
+    assert "materialized" in manifest
+
+
+@pytest.mark.asyncio
+async def test_materialize_sources_records_download_failures_without_crashing():
+    service = object.__new__(BotCompileService)
+    service.limits = CompileLimits()
+
+    class Client:
+        async def download_bytes(self, uri):
+            raise OpenVikingError("offline", code="UNAVAILABLE")
+
+    class Sandbox:
+        def __init__(self):
+            self.writes = {}
+
+        async def write_file(self, path, content):
+            self.writes[path] = content
+
+    sources = [
+        {
+            "source_id": "src_1",
+            "directory_uri": "viking://resources/s",
+            "entries": [{"uri": "viking://resources/s/a.jsonl", "is_dir": False, "size": 1}],
+        }
+    ]
+    sandbox = Sandbox()
+    warnings, manifest_path = await service._materialize_sources(
+        client=Client(),
+        sources=sources,
+        sandbox=sandbox,
+    )
+
+    assert manifest_path == "compile_resources/_manifest.tsv"
+    assert any("failed to materialize" in warning for warning in warnings)
+    assert "skipped:download-error" in sandbox.writes["compile_resources/_manifest.tsv"]
+
+
+def test_compile_prompt_mentions_materialized_manifest_when_available():
+    request = SanitizedCompileRequest.model_validate(
+        {
+            "from": ["viking://resources/source"],
+            "to": "viking://resources/wiki",
+            "skill": "viking://agent/skills/wiki",
+            "reason": "Compile the research",
+        }
+    )
+
+    system, _user = BotCompileService._build_prompts(
+        request=request,
+        skill_name="wiki",
+        skill_content="Write Wiki pages.",
+        catalog=[],
+        capabilities=CompileCapabilities(exec_enabled=True),
+        materialized_manifest="compile_resources/_manifest.tsv",
+        materialize_warnings=["failed to materialize viking://resources/source/b.bin: bad"],
+    )
+
+    assert "Source files are already materialized locally" in system
+    assert "compile_resources/_manifest.tsv" in system
+    assert "Do NOT" in system
+    assert "could NOT be materialized" in system
+    assert "viking://resources/source/b.bin" in system
 
 
 @pytest.mark.asyncio
@@ -1463,6 +2037,229 @@ async def test_structured_wrapper_distinguishes_iteration_exhaustion(iteration, 
         )
 
 
+def test_budget_reminder_text_escalates_with_remaining_rounds():
+    assert render_budget_reminder(70) is None
+    assert render_budget_reminder(16) is None
+
+    heads_up = render_budget_reminder(15)
+    warn = render_budget_reminder(8)
+    critical = render_budget_reminder(3)
+
+    assert "还剩 15 轮" in heads_up
+    assert "停止对已读文件的全量重扫" in heads_up
+    assert "还剩 8 轮" in warn
+    assert "必须开始提交" in warn
+    assert "未覆盖/待确认" in warn
+    assert "还剩 3 轮" in critical
+    assert "立即提交当前最好结果" in critical
+    assert "禁止再开启新的探索/读取" in critical
+    # The consequence sentence ties the reminder to the real salvage failure mode.
+    for note in (heads_up, warn, critical):
+        assert "submit_wiki_bundle" in note
+        assert "不经校验" in note
+    assert "还剩 0 轮" in render_budget_reminder(0)
+
+
+@pytest.mark.asyncio
+async def test_readlist_tracker_records_and_summarizes_without_duplicates():
+    class Sandbox:
+        def __init__(self):
+            self.files = {}
+
+        async def list_files(self, max_entries=None):
+            del max_entries
+            return [
+                SandboxFileInfo(path="compile_resources/src_1/a.md", size=1),
+                SandboxFileInfo(path="compile_resources/src_1/b.jsonl", size=1),
+                SandboxFileInfo(path="compile_resources/_manifest.tsv", size=1),
+                SandboxFileInfo(path="skills/wiki/SKILL.md", size=1),
+            ]
+
+        async def read_file(self, path):
+            return self.files.get(path, "")
+
+        async def write_file(self, path, content):
+            self.files[path] = content
+
+    sandbox = Sandbox()
+    tracker = ReadlistTracker(sandbox=sandbox)
+    await tracker.initialize()
+
+    assert tracker.universe == {
+        "compile_resources/src_1/a.md",
+        "compile_resources/src_1/b.jsonl",
+    }
+    assert await tracker.summary() == "源文件共 2 个，尚未读取任何源文件；优先去读未读文件。"
+
+    await tracker.record(["compile_resources/src_1/a.md"])
+    await tracker.record(["compile_resources/src_1/a.md"])  # duplicate is a no-op
+    assert tracker.read_paths == {"compile_resources/src_1/a.md"}
+
+    summary = await tracker.summary()
+    assert "已读 1/2 个源文件" in summary
+    assert "未读 1 个" in summary
+    assert "compile_resources/src_1/a.md" in summary
+    assert "compile_resources/src_1/b.jsonl" in summary
+    assert "不必再读" in summary
+    # Persisted to the sandbox readlist so it survives context compaction.
+    assert "compile_resources/src_1/a.md" in sandbox.files[READLIST_PATH]
+
+
+@pytest.mark.asyncio
+async def test_readlist_tracker_reloads_externally_appended_paths():
+    class Sandbox:
+        def __init__(self):
+            self.files = {
+                READLIST_PATH: "compile_resources/src_1/a.md\n",
+            }
+
+        async def list_files(self, max_entries=None):
+            del max_entries
+            return [SandboxFileInfo(path="compile_resources/src_1/a.md", size=1)]
+
+        async def read_file(self, path):
+            return self.files.get(path, "")
+
+        async def write_file(self, path, content):
+            self.files[path] = content
+
+    tracker = ReadlistTracker(sandbox=Sandbox())
+    await tracker.initialize()
+    summary = await tracker.summary()
+    assert "已读 1/1 个源文件" in summary
+    assert "不必再读" in summary
+
+
+class _ReadTrackingFake(Tool):
+    def __init__(self, name, *, result="ok"):
+        self._name = name
+        self._result = result
+
+    @property
+    def name(self):
+        return self._name
+
+    @property
+    def description(self):
+        return "fake"
+
+    @property
+    def parameters(self):
+        return {"type": "object", "properties": {}}
+
+    async def execute(self, tool_context, **kwargs):
+        del tool_context, kwargs
+        return self._result
+
+
+@pytest.mark.asyncio
+async def test_read_tracking_tool_records_read_file_edit_and_explicit_exec():
+    class Sandbox:
+        def __init__(self):
+            self.files = {}
+
+        async def list_files(self, max_entries=None):
+            del max_entries
+            return [
+                SandboxFileInfo(path="compile_resources/src_1/a.md", size=1),
+                SandboxFileInfo(path="compile_resources/src_1/b.jsonl", size=1),
+                SandboxFileInfo(path="compile_resources/src_1/c.md", size=1),
+            ]
+
+        async def read_file(self, path):
+            return self.files.get(path, "")
+
+        async def write_file(self, path, content):
+            self.files[path] = content
+
+    tracker = ReadlistTracker(sandbox=Sandbox())
+    await tracker.initialize()
+
+    read_tool = ReadTrackingTool(_ReadTrackingFake("read_file"), tracker=tracker)
+    await read_tool.execute(ToolContext(), path="compile_resources/src_1/a.md")
+    edit_tool = ReadTrackingTool(_ReadTrackingFake("edit_file"), tracker=tracker)
+    await edit_tool.execute(
+        ToolContext(), path="compile_resources/src_1/c.md", old_text="x", new_text="y"
+    )
+    exec_tool = ReadTrackingTool(_ReadTrackingFake("exec"), tracker=tracker)
+    await exec_tool.execute(
+        ToolContext(), command="python3 scan.py compile_resources/src_1/b.jsonl | head"
+    )
+
+    assert tracker.read_paths == {
+        "compile_resources/src_1/a.md",
+        "compile_resources/src_1/c.md",
+        "compile_resources/src_1/b.jsonl",
+    }
+
+    # A failed read is not recorded; a directory token in exec is ignored.
+    failing = ReadTrackingTool(_ReadTrackingFake("read_file", result="Error: missing"), tracker=tracker)
+    await failing.execute(ToolContext(), path="compile_resources/src_1/a.md")
+    await exec_tool.execute(ToolContext(), command="find compile_resources/src_1 -name '*.md'")
+    assert tracker.read_paths == {
+        "compile_resources/src_1/a.md",
+        "compile_resources/src_1/c.md",
+        "compile_resources/src_1/b.jsonl",
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("iteration", "with_note"),
+    [
+        (42, True),  # max_iterations=50, remaining == 8 -> budget reminder fires
+        (1, False),  # no thresholds/readlist -> provider stays quiet by default
+    ],
+)
+async def test_structured_task_injects_status_note_provider(iteration, with_note):
+    registry = ToolRegistry()
+    submit = SubmitWikiBundleTool(
+        source_ids={"src_1"},
+        catalog_uris=set(),
+        target_uri="viking://resources/wiki",
+        limits=CompileLimits(),
+    )
+    registry.register(submit)
+
+    class FakeReadlist:
+        async def summary(self):
+            return "已读 1/2 个源文件，未读 1 个。"
+
+    captured: dict = {}
+
+    class FakeLoop:
+        max_iterations = 50
+
+        async def _run_agent_loop(self, **kwargs):
+            captured["provider"] = kwargs.get("status_note_provider")
+            captured["note"] = await captured["provider"](iteration)
+            submit.bundle = WikiBundleDraft.model_validate({"pages": []})
+            return None, None, [], {}, iteration
+
+    kwargs: dict = {
+        "system_prompt": "system",
+        "user_prompt": "user",
+        "session_key": SessionKey(type="compile", channel_id="cmp", chat_id="cmp"),
+        "tool_registry": registry,
+        "openviking_tool_names": set(),
+        "stop_tool_names": ["submit_wiki_bundle"],
+        "openviking_connection": None,
+    }
+    if with_note:
+        kwargs["budget_reminder_thresholds"] = (15, 8, 3)
+        kwargs["readlist_provider"] = FakeReadlist()
+
+    await AgentLoop.run_structured_task(FakeLoop(), **kwargs)
+
+    note = captured["note"]
+    if not with_note:
+        assert note is None
+        return
+    assert "必须开始提交" in note
+    assert "已读 1/2 个源文件" in note
+    assert note.index("必须开始提交") < note.index("已读 1/2")  # budget reminder first
+
+
 @pytest.mark.asyncio
 async def test_request_normalization_uses_default_reason_and_canonical_skill(monkeypatch):
     class Client:
@@ -1710,6 +2507,18 @@ async def test_execute_skill_target_skips_recursive_catalog_and_completes(
             del session_key
             return self.workspace
 
+        async def get_sandbox(self, session_key):
+            del session_key
+
+            class Sandbox:
+                workspace = self.workspace
+
+                async def list_files(self, max_entries=None):
+                    del max_entries
+                    return []
+
+            return Sandbox()
+
         async def cleanup_session(self, session_key):
             del session_key
 
@@ -1812,12 +2621,14 @@ async def test_execute_skill_target_skips_recursive_catalog_and_completes(
         workspace_baseline,
         wiki_uri_resolver,
         capabilities,
+        materialized=False,
+        readlist=None,
     ):
-        del request_loop, roots, source_ids
+        del request_loop, roots, source_ids, materialized, readlist
         assert capabilities == CompileCapabilities(exec_enabled=False)
         assert catalog_uris == set()
         assert file_catalog_uris == set()
-        assert workspace_baseline is None
+        assert workspace_baseline == set()
         assert callable(wiki_uri_resolver)
         registry = ToolRegistry()
         registry.register(
@@ -1899,10 +2710,13 @@ async def test_source_context_builds_bounded_compact_recursive_catalog():
             assert uri == "viking://resources/source"
             return "Source overview"
 
+        async def stat(self, uri):
+            return {"isDir": True}
+
         async def list_resources(self, *, path, recursive, node_limit):
             assert path == "viking://resources/source"
             assert recursive is True
-            assert node_limit == 3
+            assert node_limit == 5000
             return [
                 {
                     "name": "guide.md",
@@ -1932,12 +2746,15 @@ async def test_source_context_builds_bounded_compact_recursive_catalog():
             "source_id": "src_1",
             "directory_uri": "viking://resources/source",
             "overview": "Source overview",
+            "file_count": 1,
+            "total_bytes": 0,
             "entries": [
                 {
                     "name": "guide.md",
                     "title": "Readable Guide",
                     "uri": "viking://resources/source/docs/guide.md",
                     "is_dir": False,
+                    "size": 0,
                     "summary": "A" * 500,
                 },
                 {
@@ -1945,10 +2762,58 @@ async def test_source_context_builds_bounded_compact_recursive_catalog():
                     "title": "docs",
                     "uri": "viking://resources/source/docs",
                     "is_dir": True,
+                    "size": 0,
                     "summary": "Documentation",
                 },
             ],
-            "catalog_truncated": True,
+            "catalog_truncated": False,
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_source_file_synthesizes_single_entry_without_listing():
+    class Client:
+        def __init__(self):
+            self.client = self
+            self.listed = False
+
+        async def overview(self, uri):
+            return "Parent overview"
+
+        async def stat(self, uri):
+            return {"name": "2024.md", "size": 512, "isDir": False}
+
+        async def list_resources(self, *, path, recursive, node_limit):
+            self.listed = True
+            raise AssertionError("file sources must not be listed")
+
+    client = Client()
+    service = object.__new__(BotCompileService)
+    service.limits = CompileLimits()
+    sources = await service._build_sources(
+        client, ["viking://resources/weekly/2024.md"]
+    )
+
+    assert client.listed is False
+    assert sources == [
+        {
+            "source_id": "src_1",
+            "directory_uri": "viking://resources/weekly/2024.md",
+            "overview": "Parent overview",
+            "file_count": 1,
+            "total_bytes": 512,
+            "entries": [
+                {
+                    "name": "2024.md",
+                    "title": "2024",
+                    "uri": "viking://resources/weekly/2024.md",
+                    "is_dir": False,
+                    "size": 512,
+                    "summary": "",
+                },
+            ],
+            "catalog_truncated": False,
         }
     ]
 
@@ -2253,9 +3118,130 @@ def test_compile_registry_has_a_fixed_ara_compatible_tool_set(exec_enabled):
     assert registry.tool_names[-1] == "submit_wiki_bundle"
     assert all(isinstance(registry.get(name), CompileScopedTool) for name in ov_names)
     submit = registry.get("submit_wiki_bundle")
-    assert submit.require_workspace_files is True
-    assert submit.require_workspace_pages is True
+    assert submit.require_workspace_files is False
+    assert submit.require_workspace_pages is False
     assert submit.exec_enabled is exec_enabled
+
+
+def test_compile_registry_drops_export_tool_when_sources_are_materialized():
+    available = ToolRegistry()
+    for name in ("read_file", "openviking_export", "openviking_multi_read"):
+        available.register(_NamedTool(name))
+    request_loop = SimpleNamespace(tools=available, config=None)
+    service = object.__new__(BotCompileService)
+    service.limits = CompileLimits()
+    common = {
+        "request_loop": request_loop,
+        "roots": ("viking://resources/source",),
+        "target_uri": "viking://resources/wiki",
+        "source_ids": {"src_1"},
+        "catalog_uris": set(),
+    }
+
+    materialized_registry, materialized_ov = service._build_compile_registry(
+        **common,
+        capabilities=CompileCapabilities(exec_enabled=False),
+        materialized=True,
+    )
+    assert "openviking_export" not in materialized_registry.tool_names
+    assert "openviking_export" not in materialized_ov
+    assert "openviking_multi_read" in materialized_registry.tool_names
+
+    eager_registry, eager_ov = service._build_compile_registry(
+        **common,
+        capabilities=CompileCapabilities(exec_enabled=False),
+    )
+    assert "openviking_export" in eager_registry.tool_names
+    assert "openviking_export" in eager_ov
+
+
+def test_compile_prompt_uses_materialized_workflow_when_manifest_available():
+    request = SanitizedCompileRequest.model_validate(
+        {
+            "from": ["viking://resources/source"],
+            "to": "viking://resources/wiki",
+            "skill": "viking://agent/skills/wiki",
+            "reason": "Compile the research",
+        }
+    )
+    common = {
+        "request": request,
+        "skill_name": "wiki",
+        "skill_content": "Write Wiki pages.",
+        "catalog": [],
+        "capabilities": CompileCapabilities(exec_enabled=True),
+    }
+
+    materialized_system, _ = BotCompileService._build_prompts(
+        **common,
+        materialized_manifest="compile_resources/_manifest.tsv",
+    )
+    assert "read `compile_resources/_manifest.tsv`" in materialized_system
+    assert "Do NOT use openviking_list" in materialized_system
+
+    eager_system, _ = BotCompileService._build_prompts(**common)
+    assert "Map the corpus first: run openviking_list" in eager_system
+    assert "Do NOT use openviking_list" not in eager_system
+
+
+def test_compile_prompt_includes_per_source_inventory():
+    request = SanitizedCompileRequest.model_validate(
+        {
+            "from": [
+                "viking://resources/dream-memory-store",
+                "viking://resources/dream-sessions",
+            ],
+            "to": "viking://resources/wiki",
+            "skill": "viking://agent/skills/wiki",
+            "reason": "Compile",
+        }
+    )
+    sources = [
+        {
+            "source_id": "src_1",
+            "directory_uri": "viking://resources/dream-memory-store",
+            "file_count": 46,
+            "total_bytes": 180_000,
+            "entries": [
+                {"name": "a.md", "is_dir": False},
+                {"name": "b.md", "is_dir": False},
+                {"name": "MEMORY", "is_dir": True},
+            ],
+        },
+        {
+            "source_id": "src_2",
+            "directory_uri": "viking://resources/dream-sessions",
+            "file_count": 480,
+            "total_bytes": 22_000_000,
+            "entries": [{"name": "rollout.jsonl", "is_dir": False}],
+        },
+    ]
+
+    _system, user = BotCompileService._build_prompts(
+        request=request,
+        skill_name="wiki",
+        skill_content="Write pages.",
+        catalog=[],
+        capabilities=CompileCapabilities(exec_enabled=True),
+        sources=sources,
+    )
+
+    assert "Source inventory (data):" in user
+    assert "src_1" in user and "src_2" in user
+    assert "46 files" in user
+    assert "480 files" in user
+    assert "md:2" in user
+    assert "jsonl:1" in user
+
+    # Without sources (e.g. older callers), the inventory section is omitted entirely.
+    _system, user_without = BotCompileService._build_prompts(
+        request=request,
+        skill_name="wiki",
+        skill_content="Write pages.",
+        catalog=[],
+        capabilities=CompileCapabilities(exec_enabled=True),
+    )
+    assert "Source inventory (data):" not in user_without
 
 
 def test_compile_prompt_routes_skill_cli_commands_through_exec():
@@ -2272,7 +3258,6 @@ def test_compile_prompt_routes_skill_cli_commands_through_exec():
         request=request,
         skill_name="ara",
         skill_content="Follow the ARA method.",
-        sources=[],
         catalog=[],
         capabilities=CompileCapabilities(exec_enabled=True),
     )
@@ -2280,9 +3265,8 @@ def test_compile_prompt_routes_skill_cli_commands_through_exec():
     assert "When the Skill asks to run Bash, shell commands, or a CLI, use the exec tool." in system
     assert "`skills/ara/`" in system
     assert "resolve its relative paths there and use read_file" in system
-    assert "Generate every artifact file in the task workspace with write_file or exec" in system
-    assert "submit_wiki_bundle using workspace_path" in system
-    assert "never inline artifact content" in system
+    assert "Submit Wiki page bodies and artifact file content inline in submit_wiki_bundle" in system
+    assert "workspace_path (files) or body_workspace_path (pages)" in system
     assert "Compile host capability notice" not in system
     assert "Preserve every required output type, path, and format" in system
     assert "preserve Skill-prescribed artifact file trees as exact files" in system
@@ -2290,11 +3274,10 @@ def test_compile_prompt_routes_skill_cli_commands_through_exec():
     assert "match_text" not in system
     assert "pages=[]" not in system
     assert "body_workspace_path" in system
-    assert "__compile_staging__/wiki_pages/" in system
-    assert "__compile_staging__/tmp/" in system
     assert "use its URI as an ordinary Markdown link" in system
     assert "unavailable" not in user
     assert "verify every output path and format explicitly required by the Skill" in user
+    assert "Inspect the source directories" in system
     for implementation_name in (
         "submit_wiki_bundle",
         "source_id",
@@ -2318,7 +3301,6 @@ def test_compile_prompt_omits_exec_when_capability_is_disabled():
         request=request,
         skill_name="wiki",
         skill_content="Write two Wiki pages.",
-        sources=[],
         catalog=[],
         capabilities=CompileCapabilities(exec_enabled=False),
     )
@@ -2326,9 +3308,7 @@ def test_compile_prompt_omits_exec_when_capability_is_disabled():
     assert "Command execution is unavailable." in system
     assert "Do not attempt Bash, shell commands, or CLI commands" in system
     assert "use write_file or edit_file" in system
-    assert (
-        "Generate every artifact file in the task workspace with write_file, then submit" in system
-    )
+    assert "Submit Wiki page bodies and artifact file content inline in submit_wiki_bundle" in system
     assert "write_file or exec" not in system
     assert "use the exec tool" not in system
 
@@ -2347,14 +3327,13 @@ def test_compile_prompt_requires_one_complete_skill_package_without_exec():
         request=request,
         skill_name="skill-creator",
         skill_content="Create a standards-compliant Skill.",
-        sources=[],
         catalog=[],
         capabilities=CompileCapabilities(exec_enabled=False),
     )
 
     assert "Command execution is unavailable." in system
     assert "write_file or exec" not in system
-    assert "submit_wiki_bundle using workspace_path" in system
+    assert "workspace_path (files) or body_workspace_path (pages)" in system
     assert "exactly one complete Skill package as artifact files" in system
     assert "<skill-name>/SKILL.md" in system
     assert "Do not produce Wiki pages, links" in system
@@ -2447,6 +3426,8 @@ class _FakeWorkspaceSandbox:
     [
         (SandboxBackend.DIRECT, False, False),
         (SandboxBackend.DIRECT, True, True),
+        # No explicit setting: falls back to DirectBackendConfig().allow_compile_exec (True).
+        (SandboxBackend.DIRECT, None, True),
         (SandboxBackend.SRT, False, True),
         (SandboxBackend.DOCKER, False, True),
         (SandboxBackend.OPENSANDBOX, False, True),
@@ -2456,7 +3437,7 @@ class _FakeWorkspaceSandbox:
 def test_compile_exec_capability_depends_on_backend(
     tmp_path: Path,
     backend: SandboxBackend,
-    allow_compile_exec: bool,
+    allow_compile_exec: bool | None,
     expected: bool,
 ):
     service = _compile_service(
@@ -2546,11 +3527,29 @@ async def test_compile_without_exec_syncs_ordinary_skill_without_running_command
 
 
 @pytest.mark.asyncio
-async def test_local_dev_compile_uses_config_backed_connection(monkeypatch, tmp_path: Path):
+@pytest.mark.parametrize(
+    ("auth_mode", "allow_compile_exec", "with_connection", "principal_scope", "expected_exec"),
+    [
+        # Local dev: config-backed connection, exec enabled by default on the direct backend.
+        ("dev", None, False, "dev", True),
+        # API-key auth: explicit connection, exec gated off even on the direct backend.
+        ("api_key", False, True, "owner", False),
+    ],
+)
+async def test_compile_create_task_connection_and_exec(
+    monkeypatch,
+    tmp_path: Path,
+    auth_mode: str,
+    allow_compile_exec: bool | None,
+    with_connection: bool,
+    principal_scope: str,
+    expected_exec: bool,
+):
     service = _compile_service(
         tmp_path,
-        auth_mode="dev",
+        auth_mode=auth_mode,
         backend=SandboxBackend.DIRECT,
+        allow_compile_exec=allow_compile_exec,
     )
     started = asyncio.Event()
     release = asyncio.Event()
@@ -2570,51 +3569,23 @@ async def test_local_dev_compile_uses_config_backed_connection(monkeypatch, tmp_
     monkeypatch.setattr(service, "_normalize_request", normalize)
     monkeypatch.setattr(service, "_run_task", run_task)
 
-    accepted = await service.create_task(_compile_request(), principal_scope="dev")
+    accepted = await service.create_task(
+        _compile_request(connection=with_connection),
+        principal_scope=principal_scope,
+    )
     await started.wait()
 
     assert accepted.status == "accepted"
-    assert service._compile_capabilities().exec_enabled is False
-    assert observed == {"connection": {}, "runner_connection": {}}
+    assert service._compile_capabilities().exec_enabled is expected_exec
+    expected_connection = {"api_key": "secret"} if with_connection else {}
+    assert observed == {
+        "connection": expected_connection,
+        "runner_connection": expected_connection,
+    }
     runners = list(service._tasks)
     release.set()
     await asyncio.gather(*runners)
     assert service._admitted_tasks == 0
-
-
-@pytest.mark.asyncio
-async def test_direct_compile_without_exec_is_accepted_by_default(monkeypatch, tmp_path: Path):
-    service = _compile_service(
-        tmp_path,
-        auth_mode="api_key",
-        backend=SandboxBackend.DIRECT,
-    )
-    started = asyncio.Event()
-    release = asyncio.Event()
-
-    async def normalize(request, *, connection):
-        del request
-        assert connection == {"api_key": "secret"}
-        return _sanitized_compile_request()
-
-    async def run_task(*args):
-        del args
-        started.set()
-        await release.wait()
-
-    monkeypatch.setattr(service, "_normalize_request", normalize)
-    monkeypatch.setattr(service, "_run_task", run_task)
-
-    accepted = await service.create_task(
-        _compile_request(connection=True),
-        principal_scope="owner",
-    )
-    await started.wait()
-
-    assert accepted.status == "accepted"
-    assert service._compile_capabilities().exec_enabled is False
-    release.set()
-    await asyncio.gather(*service._tasks)
 
 
 @pytest.mark.asyncio
@@ -2763,6 +3734,9 @@ async def test_timeout_salvage_copies_workspace_and_repairs_links(tmp_path: Path
         "bad#name.txt": b"unsafe URI",
         "__compile_staging__/work/notes.txt": b"notes",
         "__compile_staging__/tmp/check.txt": b"check",
+        READLIST_PATH: b"compile_resources/src_1/a.md\n",
+        "tmp_out/scratch.txt": b"scratch",
+        "TmpCache/case.txt": b"case",
         "skills/wiki/SKILL.md": b"do not copy",
         "sandboxes/cmp-srt-settings.json": b'{"filesystem": "/private/host/path"}',
     }
@@ -2827,6 +3801,9 @@ async def test_timeout_salvage_copies_workspace_and_repairs_links(tmp_path: Path
     assert payloads["meta/events.jsonl"] == b""
     assert "__compile_staging__/work/notes.txt" not in payloads
     assert "__compile_staging__/tmp/check.txt" not in payloads
+    assert READLIST_PATH not in payloads
+    assert "tmp_out/scratch.txt" not in payloads
+    assert "TmpCache/case.txt" not in payloads
     assert "sandboxes/cmp-srt-settings.json" not in payloads
     assert "sandboxes/cmp-srt-settings.json" not in {path for path, _limit in sandbox.reads}
     assert sum(path.casefold() == "foo.md" for path in payloads) == 1
