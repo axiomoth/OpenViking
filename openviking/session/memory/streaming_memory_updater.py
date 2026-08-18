@@ -179,10 +179,6 @@ class StreamingMemoryUpdater:
             raise RuntimeError("StreamingMemoryUpdater is closed")
         if request.ctx is None:
             raise ValueError("MemoryUpdateRequest.ctx is required")
-        logger.info(  # TEMP_MEMORY_BADCASE_LOG: remove after bad-case analysis
-            "[TEMP_MEMORY_BADCASE_LOG] streaming_input=%s",
-            request.operations.model_dump_json(),
-        )
         attach_source_to_request_operations(request)
         append_only_request, merge_request = self._split_append_only_request(request)
         append_result = (
@@ -214,11 +210,6 @@ class StreamingMemoryUpdater:
             f"deleted_uris={scoped_result.apply_result.deleted_uris} "
             f"errors={scoped_result.apply_result.errors}",
             console=self.config.trace_console,
-        )
-        logger.info(  # TEMP_MEMORY_BADCASE_LOG: remove after bad-case analysis
-            "[TEMP_MEMORY_BADCASE_LOG] streaming_output operations=%s apply=%s",
-            scoped_result.operations.model_dump_json(),
-            scoped_result.apply_result.summary(),
         )
         return scoped_result
 

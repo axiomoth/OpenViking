@@ -569,9 +569,6 @@ After exploring, analyze the conversation and output ALL memory write/edit/delet
         # eager_prefetch 模式：读取搜索结果 top-N
         if self._eager_prefetch:
             topn_files = files_to_read_from_search[: self._prefetch_search_topn]
-            logger.info(  # TEMP_MEMORY_BADCASE_LOG: remove after bad-case analysis
-                "[TEMP_MEMORY_BADCASE_LOG][memory_prefetch] topn_files=%s", topn_files
-            )
             for file_uri in topn_files:
                 if not file_uri:
                     continue

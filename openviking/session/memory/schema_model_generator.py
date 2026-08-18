@@ -277,7 +277,6 @@ class SchemaModelGenerator:
 
         # decision_reasoning is temporarily disabled to avoid spending output tokens.
         # if self._include_decision_reasoning:
-        #     # TEMP_MEMORY_BADCASE_LOG: remove after bad-case analysis.
         #     field_definitions["decision_reasoning"] = (
         #         List[PageDecision],
         #         Field(

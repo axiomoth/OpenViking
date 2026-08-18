@@ -861,11 +861,6 @@ class MemoryUpdater:
         if not self._registry:
             raise ValueError("MemoryTypeRegistry is required for URI resolution")
 
-        logger.info(  # TEMP_MEMORY_BADCASE_LOG: remove after bad-case analysis
-            "[TEMP_MEMORY_BADCASE_LOG] apply_input=%s",
-            operations.model_dump_json(),
-        )
-
         # Resolve all URIs first (pass extract_context for template rendering)
         tracer.info(f"[MemoryUpdater] applying operations, isolation_handler={isolation_handler}")
 
@@ -1016,9 +1011,6 @@ class MemoryUpdater:
                 lease_ref=self._transaction_handle,
             )
 
-        logger.info(  # TEMP_MEMORY_BADCASE_LOG: remove after bad-case analysis
-            "[TEMP_MEMORY_BADCASE_LOG] apply_output=%s", result.summary()
-        )
         return result
 
     async def _sync_resource_refs_for_result(

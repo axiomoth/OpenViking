@@ -348,13 +348,8 @@ def parse_value_with_tolerance(value, annotation):
                     try:
                         validated_item = TypeAdapter(item_type).validate_python(item, strict=False)
                         filtered_items.append(validated_item)
-                    except Exception as item_error:
+                    except Exception:
                         tracer.info(f"Skipping invalid list item: {item}")
-                        logger.info(  # TEMP_MEMORY_BADCASE_LOG: remove after bad-case analysis
-                            "[TEMP_MEMORY_BADCASE_LOG] filtered_list_item=%s error=%s",
-                            item,
-                            item_error,
-                        )
                         continue
 
             if filtered_items:
@@ -452,9 +447,6 @@ def parse_json_with_stability(
     except Exception as e:
         tracer.info(f"Direct model validation failed, trying parse_value_with_tolerance: {e}")
         tracer.info(f"content={content}")
-        logger.info(  # TEMP_MEMORY_BADCASE_LOG: remove after bad-case analysis
-            "[TEMP_MEMORY_BADCASE_LOG] direct_validation_failed=%s", e
-        )
         # Fallback: Apply value fault tolerance to each field individually
         try:
             field_types = get_type_hints(model_class)
