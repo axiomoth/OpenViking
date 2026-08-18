@@ -56,5 +56,7 @@ fields:
       for future who/what/when/where/how-long questions.
 
       Keep it readable: usually 6-14 bullets total / about 1200 chars. When updating,
-      merge and deduplicate; preserve existing atomic facts unless contradicted.
+      merge and deduplicate. Preserve existing atomic facts unless contradicted or explicitly
+      forgotten; for an explicit forget request, remove all matching claims from a read entity,
+      including summaries and sections, while preserving unrelated claims.
     merge_op: patch

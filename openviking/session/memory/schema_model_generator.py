@@ -10,7 +10,7 @@ definitions, with discriminator support for polymorphic fields.
 import re
 from typing import Annotated, Any, Dict, List, Optional, Tuple, Type, Union
 
-from pydantic import BaseModel, Field, WithJsonSchema, create_model
+from pydantic import BaseModel, Field, WithJsonSchema, create_model, model_validator
 from pydantic.config import ConfigDict
 
 from openviking.session.memory.dataclass import (
@@ -132,14 +132,19 @@ class SchemaModelGenerator:
             ),
         )
 
+        immutable_field_names = []
+
         # Add business fields from schema
         for field in memory_type.fields:
             base_type = self._map_field_type(field.field_type)
             if field.merge_op == MergeOp.IMMUTABLE:
-                # Immutable fields: only base type, required
+                # Existing items are located by page_id and their immutable fields
+                # are restored from the read file in ExtractLoop.resolve_operations().
+                # New items still require these fields via the conditional validator below.
+                immutable_field_names.append(field.name)
                 field_definitions[field.name] = (
                     base_type,
-                    Field(..., description=self._render_description(field.description)),
+                    Field(None, description=self._render_description(field.description)),
                 )
             else:
                 # Mutable fields: Union[base_type, patch_type], optional
@@ -153,10 +158,45 @@ class SchemaModelGenerator:
                     Optional[union_type],
                     Field(None, description=desc),
                 )
+        validators = {}
+        model_config = ConfigDict(extra="ignore")
+        if immutable_field_names:
+            required_for_new = tuple(immutable_field_names)
+
+            def require_immutable_fields_for_new(item):
+                if item.page_id >= 100:
+                    missing = [
+                        name for name in required_for_new if getattr(item, name, None) is None
+                    ]
+                    if missing:
+                        raise ValueError(
+                            "New memory items require immutable fields: " + ", ".join(missing)
+                        )
+                return item
+
+            validators["require_immutable_fields_for_new"] = model_validator(mode="after")(
+                require_immutable_fields_for_new
+            )
+            model_config = ConfigDict(
+                extra="ignore",
+                json_schema_extra={
+                    "allOf": [
+                        {
+                            "if": {
+                                "properties": {"page_id": {"minimum": 100}},
+                                "required": ["page_id"],
+                            },
+                            "then": {"required": list(required_for_new)},
+                        }
+                    ]
+                },
+            )
+
         # Create the model
         model = create_model(
             model_name,
-            __config__=ConfigDict(extra="ignore"),
+            __config__=model_config,
+            __validators__=validators,
             **field_definitions,
         )
 

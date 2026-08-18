@@ -208,6 +208,9 @@ class ExtractLoop:
 - For new items, assign a unique page_id >= 100.
 - When editing an existing item, reuse its existing page_id.
 - To delete an existing item, add an entry to `delete_ids` using its page_id.
+- `delete_ids` removes the entire existing memory item. Use it only when the request invalidates all substantive content in that item.
+- For a partial correction or forget request, update every read item containing the affected content; remove or replace only that content and preserve all other content unchanged.
+- Do not create a new memory merely to record that the user forgot something or has no preference or conclusion; if no matching existing fact is available, emit no operation.
 - For canonical merges, set `replacement_page_id` to the surviving page that should inherit the deleted page's existing links/backlinks; for pure deletes, set `replacement_page_id` to null.
 """
         link_rules = ""
