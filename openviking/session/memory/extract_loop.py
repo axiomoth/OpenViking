@@ -647,6 +647,11 @@ The final output of the model must strictly follow the JSON Schema format shown 
         if not self._disable_tools_for_iteration and self._tool_schemas:
             tools = self._tool_schemas
             tool_choice = "auto"
+        if type(self.context_provider).__name__ == "PatchMergeContextProvider":
+            logger.info(  # TEMP_MEMORY_BADCASE_LOG: remove after bad-case analysis
+                "[TEMP_MEMORY_BADCASE_LOG][PATCH_MERGE_LLM_INPUT]\n%s",
+                json.dumps(messages, ensure_ascii=False, indent=2, default=str),
+            )
         with bind_telemetry_stage("memory_extract"):
             response = await self.vlm.get_completion_async(
                 messages=messages,
