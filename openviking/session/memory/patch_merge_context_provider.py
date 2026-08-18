@@ -146,8 +146,6 @@ equivalent directories across singular/plural, synonym, or language/script
 variants. For new segments, use singular snake_case for English and one concise
 canonical term for Chinese; e.g. book not books, 书籍 not 书/图书. If a loser URI
 is an existing file, put it in delete_ids; if it is only a new proposal, omit it.
-Apply input removals before canonicalization. Never recreate or move content removed
-by a patch unless another input patch explicitly retains that content.
 """
 
     def get_tools(self) -> list[str]:
