@@ -44,8 +44,7 @@ fields:
     type: string
     description: |
       Preference content in Markdown format describing "what the user prefers/is accustomed to".
-      Treat each bullet as an independent preference claim; omit duplicates, events, dates, plans, and supporting evidence.
-      For a correction or forget request, remove only directly affected bullets; delete the item only if no substantive bullet remains.
+      Write one concise bullet per distinct, reusable preference; omit duplicates, events, dates, plans, and supporting evidence.
       Example:
       - Prefers concise written updates with decisions and next actions.
       - Chooses lightweight tools when they cover the workflow.

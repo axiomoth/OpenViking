@@ -353,3 +353,16 @@ class TestExtractLoopFinalJsonRetry:
         assert final_prompts
         assert '"delete_ids": []' in final_prompts[-1]
         assert '"preferences": []' in final_prompts[-1]
+
+        system_prompts = [
+            message["content"]
+            for messages in vlm.seen_messages
+            for message in messages
+            if message.get("role") == "system"
+        ]
+        assert system_prompts
+        initial_system_prompt = system_prompts[0]
+        assert "`delete_ids` deletes the whole item" in initial_system_prompt
+        assert "only if every substantive fact is in scope" in initial_system_prompt
+        assert "otherwise MUST use DELETE blocks" in initial_system_prompt
+        assert "not inferring scope from the file name/topic" in initial_system_prompt
