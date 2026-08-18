@@ -40,6 +40,7 @@ from .errors import (
     VLMFailedError,
 )
 from .options import (
+    AddMessageOptions,
     AddResourceOptions,
     AddSkillOptions,
     BatchAddMessagesOptions,
@@ -157,20 +158,34 @@ class Session:
 
     async def add_message(
         self,
-        message: Optional[Message] = None,
-        **legacy_kwargs: Any,
+        *,
+        role: str,
+        content: Optional[str] = None,
+        parts: Optional[List[Dict[str, Any]]] = None,
+        options: Optional[AddMessageOptions] = None,
     ) -> Dict[str, Any]:
-        return await self._client.add_message(self.session_id, message, **legacy_kwargs)
+        return await self._client.add_message(
+            self.session_id,
+            role=role,
+            content=content,
+            parts=parts,
+            options=options,
+        )
 
     async def batch_add_messages(self, messages: list[dict]) -> Dict[str, Any]:
         return await self._client.batch_add_messages(self.session_id, messages)
 
     async def commit(
         self,
+        *,
+        keep_recent_count: int = 0,
         options: Optional[CommitSessionOptions] = None,
-        **legacy_kwargs: Any,
     ) -> Dict[str, Any]:
-        return await self._client.commit_session(self.session_id, options, **legacy_kwargs)
+        return await self._client.commit_session(
+            self.session_id,
+            keep_recent_count=keep_recent_count,
+            options=options,
+        )
 
     async def delete(self) -> None:
         await self._client.delete_session(self.session_id)
@@ -192,27 +207,42 @@ class SyncSession:
 
     def add_message(
         self,
-        message: Optional[Message] = None,
-        **legacy_kwargs: Any,
+        *,
+        role: str,
+        content: Optional[str] = None,
+        parts: Optional[List[Dict[str, Any]]] = None,
+        options: Optional[AddMessageOptions] = None,
     ) -> Dict[str, Any]:
-        return self._client.add_message(self.session_id, message, **legacy_kwargs)
+        return self._client.add_message(
+            self.session_id,
+            role=role,
+            content=content,
+            parts=parts,
+            options=options,
+        )
 
     def batch_add_messages(self, messages: list[dict]) -> Dict[str, Any]:
         return self._client.batch_add_messages(self.session_id, messages)
 
     def commit(
         self,
+        *,
+        keep_recent_count: int = 0,
         options: Optional[CommitSessionOptions] = None,
-        **legacy_kwargs: Any,
     ) -> Dict[str, Any]:
-        return self._client.commit_session(self.session_id, options, **legacy_kwargs)
+        return self._client.commit_session(
+            self.session_id,
+            keep_recent_count=keep_recent_count,
+            options=options,
+        )
 
     def commit_async(
         self,
+        *,
+        keep_recent_count: int = 0,
         options: Optional[CommitSessionOptions] = None,
-        **legacy_kwargs: Any,
     ) -> Dict[str, Any]:
-        return self.commit(options, **legacy_kwargs)
+        return self.commit(keep_recent_count=keep_recent_count, options=options)
 
     def delete(self) -> None:
         self._client.delete_session(self.session_id)
@@ -489,36 +519,6 @@ class AsyncHTTPClient:
                 raise ValueError("Either content or non-empty parts must be provided")
         return cls._compact_request_body(payload)
 
-    @staticmethod
-    def _merge_legacy_options(
-        options: Optional[Mapping[str, Any]],
-        legacy_kwargs: Mapping[str, Any],
-        options_type: Type[Any],
-    ) -> Dict[str, Any]:
-        option_values = dict(options or {})
-        allowed = set(options_type.__optional_keys__) | set(options_type.__required_keys__)
-
-        unknown = sorted(set(option_values) - allowed)
-        if unknown:
-            raise TypeError(
-                f"Unknown option '{unknown[0]}' for {options_type.__name__}; "
-                "use 'extra' for server fields not yet supported by the SDK"
-            )
-
-        unsupported = sorted(set(legacy_kwargs) - allowed)
-        if unsupported:
-            raise TypeError(
-                f"unsupported option '{unsupported[0]}' for {options_type.__name__}; "
-                'use options["extra"] for server fields not yet modeled by this SDK'
-            )
-
-        duplicate = sorted(set(option_values) & set(legacy_kwargs))
-        if duplicate:
-            raise ValueError(f"option '{duplicate[0]}' was provided in both options and kwargs")
-
-        option_values.update(legacy_kwargs)
-        return option_values
-
     @classmethod
     def _build_options_payload(
         cls,
@@ -696,13 +696,16 @@ class AsyncHTTPClient:
     async def add_resource(
         self,
         path: str,
+        *,
+        to: Optional[str] = None,
+        parent: Optional[str] = None,
+        reason: str = "",
+        wait: bool = False,
+        timeout: Optional[float] = None,
         options: Optional[AddResourceOptions] = None,
-        **legacy_kwargs: Any,
     ) -> Dict[str, Any]:
-        option_values = self._merge_legacy_options(options, legacy_kwargs, AddResourceOptions)
+        option_values = dict(options or {})
         add_type = option_values.get("add_type")
-        to = option_values.get("to")
-        parent = option_values.get("parent")
         if add_type is not None:
             add_type = add_type.strip() or None
         if add_type and parent:
@@ -713,14 +716,21 @@ class AsyncHTTPClient:
             raise ValueError("Cannot specify both 'to' and 'parent' at the same time.")
 
         if to is not None:
-            option_values["to"] = VikingURI.normalize(to)
+            to = VikingURI.normalize(to)
         if parent is not None:
-            option_values["parent"] = VikingURI.normalize(parent)
+            parent = VikingURI.normalize(parent)
         if add_type is not None:
             option_values["add_type"] = add_type
         request_data = self._build_options_payload(
             option_values,
             AddResourceOptions,
+            fixed={
+                "to": to,
+                "parent": parent,
+                "reason": reason or None,
+                "wait": wait,
+                "timeout": timeout,
+            },
             protected={"path", "temp_file_id", "source_name"},
         )
 
@@ -750,12 +760,11 @@ class AsyncHTTPClient:
         session_id: str,
         messages: list[Message],
         options: Optional[BatchAddMessagesOptions] = None,
-        **legacy_kwargs: Any,
     ) -> Dict[str, Any]:
         session_path = self._path_segment(session_id)
         normalized_messages = [self._normalize_message_payload(message) for message in messages]
         payload = self._build_options_payload(
-            self._merge_legacy_options(options, legacy_kwargs, BatchAddMessagesOptions),
+            options,
             BatchAddMessagesOptions,
             fixed={"messages": normalized_messages},
         )
@@ -769,15 +778,18 @@ class AsyncHTTPClient:
     async def add_skill(
         self,
         data: Any,
+        *,
+        wait: bool = False,
+        timeout: Optional[float] = None,
         options: Optional[AddSkillOptions] = None,
-        **legacy_kwargs: Any,
     ) -> Dict[str, Any]:
-        option_values = self._merge_legacy_options(options, legacy_kwargs, AddSkillOptions)
+        option_values = dict(options or {})
         if "target_uri" in option_values:
             option_values["target_uri"] = VikingURI.normalize(option_values["target_uri"])
         request_data = self._build_options_payload(
             option_values,
             AddSkillOptions,
+            fixed={"wait": wait, "timeout": timeout},
             protected={"data", "temp_file_id"},
         )
         if isinstance(data, str):
@@ -876,15 +888,18 @@ class AsyncHTTPClient:
         self,
         skill_name: str,
         data: Any,
+        *,
+        wait: bool = False,
+        timeout: Optional[float] = None,
         options: Optional[UpdateSkillOptions] = None,
-        **legacy_kwargs: Any,
     ) -> Dict[str, Any]:
-        option_values = self._merge_legacy_options(options, legacy_kwargs, UpdateSkillOptions)
+        option_values = dict(options or {})
         if "target_uri" in option_values:
             option_values["target_uri"] = VikingURI.normalize(option_values["target_uri"])
         request_data = self._build_options_payload(
             option_values,
             UpdateSkillOptions,
+            fixed={"wait": wait, "timeout": timeout},
             protected={"data", "temp_file_id"},
         )
         if isinstance(data, str):
@@ -1162,13 +1177,22 @@ class AsyncHTTPClient:
         self,
         uri: str,
         content: str,
+        *,
+        mode: str = "replace",
+        wait: bool = False,
+        timeout: Optional[float] = None,
         options: Optional[WriteOptions] = None,
-        **legacy_kwargs: Any,
     ) -> Dict[str, Any]:
         payload = self._build_options_payload(
-            self._merge_legacy_options(options, legacy_kwargs, WriteOptions),
+            options,
             WriteOptions,
-            fixed={"uri": VikingURI.normalize(uri), "content": content},
+            fixed={
+                "uri": VikingURI.normalize(uri),
+                "content": content,
+                "mode": mode,
+                "wait": wait,
+                "timeout": timeout,
+            },
         )
         response = await self._request(
             "POST",
@@ -1181,8 +1205,10 @@ class AsyncHTTPClient:
         self,
         root_uri: str,
         operations: List[Dict[str, Any]],
+        *,
+        wait: bool = True,
+        timeout: Optional[float] = None,
         options: Optional[BatchWriteOptions] = None,
-        **legacy_kwargs: Any,
     ) -> Dict[str, Any]:
         """Apply a preconditioned multi-file content write."""
         normalized_operations = []
@@ -1190,17 +1216,16 @@ class AsyncHTTPClient:
             item = dict(operation)
             item["uri"] = VikingURI.normalize(str(item.get("uri") or ""))
             normalized_operations.append(item)
-        option_values = self._merge_legacy_options(options, legacy_kwargs, BatchWriteOptions)
         payload = self._build_options_payload(
-            option_values,
+            options,
             BatchWriteOptions,
             fixed={
                 "root_uri": VikingURI.normalize(root_uri),
                 "operations": normalized_operations,
+                "wait": wait,
+                "timeout": timeout,
             },
         )
-        wait = option_values.get("wait", True)
-        timeout = option_values.get("timeout")
         response = await self._request(
             "POST",
             "/api/v1/content/batch-write",
@@ -1213,13 +1238,20 @@ class AsyncHTTPClient:
         self,
         uri: str,
         tags: List[str],
+        *,
+        mode: str = "replace",
+        recursive: bool = False,
         options: Optional[SetTagsOptions] = None,
-        **legacy_kwargs: Any,
     ) -> Dict[str, Any]:
         payload = self._build_options_payload(
-            self._merge_legacy_options(options, legacy_kwargs, SetTagsOptions),
+            options,
             SetTagsOptions,
-            fixed={"uri": VikingURI.normalize(uri), "tags": tags},
+            fixed={
+                "uri": VikingURI.normalize(uri),
+                "tags": tags,
+                "mode": mode,
+                "recursive": recursive,
+            },
         )
         response = await self._request(
             "POST",
@@ -1231,13 +1263,16 @@ class AsyncHTTPClient:
     async def find(
         self,
         query: str = "",
+        *,
+        target_uri: Union[str, List[str]] = "",
+        limit: int = 10,
         options: Optional[FindOptions] = None,
-        **legacy_kwargs: Any,
     ) -> Dict[str, Any]:
         payload = self._search_options_payload(
             query,
-            self._merge_legacy_options(options, legacy_kwargs, FindOptions),
+            options,
             FindOptions,
+            fixed={"target_uri": self._normalize_target_uri(target_uri), "limit": limit},
         )
         response = await self._request("POST", "/api/v1/search/find", json=payload)
         return self._handle_response_data(response).get("result", {})
@@ -1245,13 +1280,21 @@ class AsyncHTTPClient:
     async def search(
         self,
         query: str = "",
+        *,
+        session_id: Optional[str] = None,
+        target_uri: Union[str, List[str]] = "",
+        limit: int = 10,
         options: Optional[SearchOptions] = None,
-        **legacy_kwargs: Any,
     ) -> Dict[str, Any]:
         payload = self._search_options_payload(
             query,
-            self._merge_legacy_options(options, legacy_kwargs, SearchOptions),
+            options,
             SearchOptions,
+            fixed={
+                "session_id": session_id,
+                "target_uri": self._normalize_target_uri(target_uri),
+                "limit": limit,
+            },
         )
         response = await self._request("POST", "/api/v1/search/search", json=payload)
         return self._handle_response_data(response).get("result", {})
@@ -1259,14 +1302,22 @@ class AsyncHTTPClient:
     async def search_context(
         self,
         query: str = "",
+        *,
+        session_id: Optional[str] = None,
+        target_uri: Union[str, List[str]] = "",
+        limit: int = 10,
         options: Optional[SearchContextOptions] = None,
-        **legacy_kwargs: Any,
     ) -> SearchContextResult:
         payload = self._search_options_payload(
             query,
-            self._merge_legacy_options(options, legacy_kwargs, SearchContextOptions),
+            options,
             SearchContextOptions,
-            fixed={"mode": "context"},
+            fixed={
+                "mode": "context",
+                "session_id": session_id,
+                "target_uri": self._normalize_target_uri(target_uri),
+                "limit": limit,
+            },
         )
         response = await self._request("POST", "/api/v1/search/search", json=payload)
         return self._handle_response_data(response).get("result", {})
@@ -1342,11 +1393,16 @@ class AsyncHTTPClient:
 
     async def create_session(
         self,
+        session_id: Optional[str] = None,
+        *,
         options: Optional[CreateSessionOptions] = None,
-        **legacy_kwargs: Any,
     ) -> Dict[str, Any]:
-        option_values = self._merge_legacy_options(options, legacy_kwargs, CreateSessionOptions)
-        json_body = self._build_options_payload(option_values, CreateSessionOptions)
+        option_values = dict(options or {})
+        json_body = self._build_options_payload(
+            option_values,
+            CreateSessionOptions,
+            fixed={"session_id": session_id},
+        )
         if "auto_commit_policy" in option_values:
             json_body["auto_commit_policy"] = option_values["auto_commit_policy"]
         response = await self._request("POST", "/api/v1/sessions", json=json_body)
@@ -1366,11 +1422,8 @@ class AsyncHTTPClient:
         self,
         session_id: str,
         options: Optional[UpdateSessionConfigOptions] = None,
-        **legacy_kwargs: Any,
     ) -> Dict[str, Any]:
-        option_values = self._merge_legacy_options(
-            options, legacy_kwargs, UpdateSessionConfigOptions
-        )
+        option_values = dict(options or {})
         payload = self._build_options_payload(option_values, UpdateSessionConfigOptions)
         if "auto_commit_policy" in option_values:
             payload["auto_commit_policy"] = option_values["auto_commit_policy"]
@@ -1436,10 +1489,11 @@ class AsyncHTTPClient:
     async def commit_session(
         self,
         session_id: str,
+        *,
+        keep_recent_count: int = 0,
         options: Optional[CommitSessionOptions] = None,
-        **legacy_kwargs: Any,
     ) -> Dict[str, Any]:
-        option_values = self._merge_legacy_options(options, legacy_kwargs, CommitSessionOptions)
+        option_values = dict(options or {})
         event_tags = option_values.pop("event_tags", _SESSION_CONFIG_UNSET)
         turn_fields = {
             "keep_recent_turn_count",
@@ -1456,6 +1510,7 @@ class AsyncHTTPClient:
         payload = self._build_options_payload(
             option_values,
             CommitSessionOptions,
+            fixed={"keep_recent_count": keep_recent_count},
             protected={"extraction_metadata"},
         )
         if event_tags is not _SESSION_CONFIG_UNSET:
@@ -1471,12 +1526,23 @@ class AsyncHTTPClient:
     async def add_message(
         self,
         session_id: str,
-        message: Optional[Message] = None,
-        **legacy_kwargs: Any,
+        *,
+        role: str,
+        content: Optional[str] = None,
+        parts: Optional[List[Dict[str, Any]]] = None,
+        options: Optional[AddMessageOptions] = None,
     ) -> Dict[str, Any]:
-        payload = self._normalize_message_payload(
-            self._merge_legacy_options(message, legacy_kwargs, Message)
+        payload = self._build_options_payload(
+            options,
+            AddMessageOptions,
+            fixed={
+                "role": role,
+                "content": content,
+                "parts": parts,
+            },
+            protected={"role", "content", "parts"},
         )
+        payload = self._normalize_message_payload(payload)
         session_path = self._path_segment(session_id)
         response = await self._request(
             "POST", f"/api/v1/sessions/{session_path}/messages", json=payload
@@ -1584,13 +1650,21 @@ class AsyncHTTPClient:
     async def reindex(
         self,
         uri: str,
+        *,
+        mode: str = "vectors_only",
+        wait: bool = True,
+        dry_run: bool = False,
         options: Optional[ReindexOptions] = None,
-        **legacy_kwargs: Any,
     ) -> Dict[str, Any]:
         payload = self._build_options_payload(
-            self._merge_legacy_options(options, legacy_kwargs, ReindexOptions),
+            options,
             ReindexOptions,
-            fixed={"uri": VikingURI.normalize(uri)},
+            fixed={
+                "uri": VikingURI.normalize(uri),
+                "mode": mode,
+                "wait": wait,
+                "dry_run": dry_run,
+            },
         )
         response = await self._request(
             "POST",
@@ -1730,12 +1804,9 @@ class AsyncHTTPClient:
         self,
         experience_uri: str,
         options: Optional[ExperienceTrajectoryOptions] = None,
-        **legacy_kwargs: Any,
     ) -> Dict[str, Any]:
         params: Dict[str, Any] = {"experience_uri": VikingURI.normalize(experience_uri)}
-        params.update(
-            self._merge_legacy_options(options, legacy_kwargs, ExperienceTrajectoryOptions)
-        )
+        params.update(dict(options or {}))
         response = await self._request(
             "GET",
             "/api/v1/agent-evolution/experiences/trajectories",
@@ -1747,10 +1818,9 @@ class AsyncHTTPClient:
         self,
         experience_uri: str,
         options: Optional[ExperienceOutcomeOptions] = None,
-        **legacy_kwargs: Any,
     ) -> Dict[str, Any]:
         params: Dict[str, Any] = {"experience_uri": VikingURI.normalize(experience_uri)}
-        params.update(self._merge_legacy_options(options, legacy_kwargs, ExperienceOutcomeOptions))
+        params.update(dict(options or {}))
         response = await self._request(
             "GET",
             "/api/v1/agent-evolution/experiences/outcomes",
@@ -1762,10 +1832,9 @@ class AsyncHTTPClient:
         self,
         manifest_yaml: str,
         options: Optional[ResolveAssetsOptions] = None,
-        **legacy_kwargs: Any,
     ) -> Dict[str, Any]:
         payload = self._build_options_payload(
-            self._merge_legacy_options(options, legacy_kwargs, ResolveAssetsOptions),
+            options,
             ResolveAssetsOptions,
             fixed={"manifest_yaml": manifest_yaml},
         )
@@ -1781,10 +1850,9 @@ class AsyncHTTPClient:
         name: str,
         repo_url: str,
         options: Optional[PreflightAssetOptions] = None,
-        **legacy_kwargs: Any,
     ) -> Dict[str, Any]:
         payload = self._build_options_payload(
-            self._merge_legacy_options(options, legacy_kwargs, PreflightAssetOptions),
+            options,
             PreflightAssetOptions,
             fixed={
                 "name": name,
@@ -1978,29 +2046,45 @@ class SyncHTTPClient:
     def add_resource(
         self,
         path: str,
+        *,
+        to: Optional[str] = None,
+        parent: Optional[str] = None,
+        reason: str = "",
+        wait: bool = False,
+        timeout: Optional[float] = None,
         options: Optional[AddResourceOptions] = None,
-        **legacy_kwargs: Any,
     ) -> Dict[str, Any]:
-        return run_async(self._async_client.add_resource(path, options, **legacy_kwargs))
+        return run_async(
+            self._async_client.add_resource(
+                path,
+                to=to,
+                parent=parent,
+                reason=reason,
+                wait=wait,
+                timeout=timeout,
+                options=options,
+            )
+        )
 
     def batch_add_messages(
         self,
         session_id: str,
         messages: list[Message],
         options: Optional[BatchAddMessagesOptions] = None,
-        **legacy_kwargs: Any,
     ) -> Dict[str, Any]:
-        return run_async(
-            self._async_client.batch_add_messages(session_id, messages, options, **legacy_kwargs)
-        )
+        return run_async(self._async_client.batch_add_messages(session_id, messages, options))
 
     def add_skill(
         self,
         data: Any,
+        *,
+        wait: bool = False,
+        timeout: Optional[float] = None,
         options: Optional[AddSkillOptions] = None,
-        **legacy_kwargs: Any,
     ) -> Dict[str, Any]:
-        return run_async(self._async_client.add_skill(data, options, **legacy_kwargs))
+        return run_async(
+            self._async_client.add_skill(data, wait=wait, timeout=timeout, options=options)
+        )
 
     def list_skills(
         self,
@@ -2073,11 +2157,15 @@ class SyncHTTPClient:
         self,
         skill_name: str,
         data: Any,
+        *,
+        wait: bool = False,
+        timeout: Optional[float] = None,
         options: Optional[UpdateSkillOptions] = None,
-        **legacy_kwargs: Any,
     ) -> Dict[str, Any]:
         return run_async(
-            self._async_client.update_skill(skill_name, data, options, **legacy_kwargs)
+            self._async_client.update_skill(
+                skill_name, data, wait=wait, timeout=timeout, options=options
+            )
         )
 
     def delete_skill(
@@ -2225,54 +2313,99 @@ class SyncHTTPClient:
         self,
         uri: str,
         content: str,
+        *,
+        mode: str = "replace",
+        wait: bool = False,
+        timeout: Optional[float] = None,
         options: Optional[WriteOptions] = None,
-        **legacy_kwargs: Any,
     ) -> Dict[str, Any]:
-        return run_async(self._async_client.write(uri, content, options, **legacy_kwargs))
+        return run_async(
+            self._async_client.write(
+                uri, content, mode=mode, wait=wait, timeout=timeout, options=options
+            )
+        )
 
     def batch_write(
         self,
         root_uri: str,
         operations: List[Dict[str, Any]],
+        *,
+        wait: bool = True,
+        timeout: Optional[float] = None,
         options: Optional[BatchWriteOptions] = None,
-        **legacy_kwargs: Any,
     ) -> Dict[str, Any]:
         return run_async(
-            self._async_client.batch_write(root_uri, operations, options, **legacy_kwargs)
+            self._async_client.batch_write(
+                root_uri, operations, wait=wait, timeout=timeout, options=options
+            )
         )
 
     def set_tags(
         self,
         uri: str,
         tags: List[str],
+        *,
+        mode: str = "replace",
+        recursive: bool = False,
         options: Optional[SetTagsOptions] = None,
-        **legacy_kwargs: Any,
     ) -> Dict[str, Any]:
-        return run_async(self._async_client.set_tags(uri, tags, options, **legacy_kwargs))
+        return run_async(
+            self._async_client.set_tags(
+                uri, tags, mode=mode, recursive=recursive, options=options
+            )
+        )
 
     def find(
         self,
         query: str = "",
+        *,
+        target_uri: Union[str, List[str]] = "",
+        limit: int = 10,
         options: Optional[FindOptions] = None,
-        **legacy_kwargs: Any,
     ) -> Dict[str, Any]:
-        return run_async(self._async_client.find(query, options, **legacy_kwargs))
+        return run_async(
+            self._async_client.find(
+                query, target_uri=target_uri, limit=limit, options=options
+            )
+        )
 
     def search(
         self,
         query: str = "",
+        *,
+        session_id: Optional[str] = None,
+        target_uri: Union[str, List[str]] = "",
+        limit: int = 10,
         options: Optional[SearchOptions] = None,
-        **legacy_kwargs: Any,
     ) -> Dict[str, Any]:
-        return run_async(self._async_client.search(query, options, **legacy_kwargs))
+        return run_async(
+            self._async_client.search(
+                query,
+                session_id=session_id,
+                target_uri=target_uri,
+                limit=limit,
+                options=options,
+            )
+        )
 
     def search_context(
         self,
         query: str = "",
+        *,
+        session_id: Optional[str] = None,
+        target_uri: Union[str, List[str]] = "",
+        limit: int = 10,
         options: Optional[SearchContextOptions] = None,
-        **legacy_kwargs: Any,
     ) -> SearchContextResult:
-        return run_async(self._async_client.search_context(query, options, **legacy_kwargs))
+        return run_async(
+            self._async_client.search_context(
+                query,
+                session_id=session_id,
+                target_uri=target_uri,
+                limit=limit,
+                options=options,
+            )
+        )
 
     def grep(
         self,
@@ -2311,10 +2444,11 @@ class SyncHTTPClient:
 
     def create_session(
         self,
+        session_id: Optional[str] = None,
+        *,
         options: Optional[CreateSessionOptions] = None,
-        **legacy_kwargs: Any,
     ) -> Dict[str, Any]:
-        return run_async(self._async_client.create_session(options, **legacy_kwargs))
+        return run_async(self._async_client.create_session(session_id, options=options))
 
     def list_sessions(self) -> List[Any]:
         return run_async(self._async_client.list_sessions())
@@ -2326,11 +2460,8 @@ class SyncHTTPClient:
         self,
         session_id: str,
         options: Optional[UpdateSessionConfigOptions] = None,
-        **legacy_kwargs: Any,
     ) -> Dict[str, Any]:
-        return run_async(
-            self._async_client.update_session_config(session_id, options, **legacy_kwargs)
-        )
+        return run_async(self._async_client.update_session_config(session_id, options))
 
     def get_session_context(self, session_id: str, token_budget: int = 128_000) -> Dict[str, Any]:
         return run_async(self._async_client.get_session_context(session_id, token_budget))
@@ -2366,18 +2497,30 @@ class SyncHTTPClient:
     def commit_session(
         self,
         session_id: str,
+        *,
+        keep_recent_count: int = 0,
         options: Optional[CommitSessionOptions] = None,
-        **legacy_kwargs: Any,
     ) -> Dict[str, Any]:
-        return run_async(self._async_client.commit_session(session_id, options, **legacy_kwargs))
+        return run_async(
+            self._async_client.commit_session(
+                session_id, keep_recent_count=keep_recent_count, options=options
+            )
+        )
 
     def add_message(
         self,
         session_id: str,
-        message: Optional[Message] = None,
-        **legacy_kwargs: Any,
+        *,
+        role: str,
+        content: Optional[str] = None,
+        parts: Optional[List[Dict[str, Any]]] = None,
+        options: Optional[AddMessageOptions] = None,
     ) -> Dict[str, Any]:
-        return run_async(self._async_client.add_message(session_id, message, **legacy_kwargs))
+        return run_async(
+            self._async_client.add_message(
+                session_id, role=role, content=content, parts=parts, options=options
+            )
+        )
 
     def export_ovpack(
         self,
@@ -2429,10 +2572,17 @@ class SyncHTTPClient:
     def reindex(
         self,
         uri: str,
+        *,
+        mode: str = "vectors_only",
+        wait: bool = True,
+        dry_run: bool = False,
         options: Optional[ReindexOptions] = None,
-        **legacy_kwargs: Any,
     ) -> Dict[str, Any]:
-        return run_async(self._async_client.reindex(uri, options, **legacy_kwargs))
+        return run_async(
+            self._async_client.reindex(
+                uri, mode=mode, wait=wait, dry_run=dry_run, options=options
+            )
+        )
 
     def admin_create_account(
         self,
@@ -2507,44 +2657,32 @@ class SyncHTTPClient:
         self,
         experience_uri: str,
         options: Optional[ExperienceTrajectoryOptions] = None,
-        **legacy_kwargs: Any,
     ) -> Dict[str, Any]:
         return run_async(
-            self._async_client.list_experience_trajectories(
-                experience_uri, options, **legacy_kwargs
-            )
+            self._async_client.list_experience_trajectories(experience_uri, options)
         )
 
     def get_experience_outcomes(
         self,
         experience_uri: str,
         options: Optional[ExperienceOutcomeOptions] = None,
-        **legacy_kwargs: Any,
     ) -> Dict[str, Any]:
-        return run_async(
-            self._async_client.get_experience_outcomes(experience_uri, options, **legacy_kwargs)
-        )
+        return run_async(self._async_client.get_experience_outcomes(experience_uri, options))
 
     def resolve_openviking_assets(
         self,
         manifest_yaml: str,
         options: Optional[ResolveAssetsOptions] = None,
-        **legacy_kwargs: Any,
     ) -> Dict[str, Any]:
-        return run_async(
-            self._async_client.resolve_openviking_assets(manifest_yaml, options, **legacy_kwargs)
-        )
+        return run_async(self._async_client.resolve_openviking_assets(manifest_yaml, options))
 
     def preflight_openviking_asset(
         self,
         name: str,
         repo_url: str,
         options: Optional[PreflightAssetOptions] = None,
-        **legacy_kwargs: Any,
     ) -> Dict[str, Any]:
-        return run_async(
-            self._async_client.preflight_openviking_asset(name, repo_url, options, **legacy_kwargs)
-        )
+        return run_async(self._async_client.preflight_openviking_asset(name, repo_url, options))
 
     def get_status(self) -> Dict[str, Any]:
         return self._async_client.get_status()
