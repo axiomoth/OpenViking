@@ -166,6 +166,10 @@ class ExtractLoop:
         self.schema_model_generator = SchemaModelGenerator(
             schemas,
             template_context={"language": output_language},
+            # decision_reasoning is temporarily disabled to save model output tokens.
+            # include_decision_reasoning=(
+            #     type(self.context_provider).__name__ != "PatchMergeContextProvider"
+            # ),
         )
         self.schema_model_generator.generate_all_models()
 
@@ -728,6 +732,13 @@ The final output of the model must strictly follow the JSON Schema format shown 
                     )
                     return (None, None)
 
+                # decision_reasoning is temporarily disabled to save model output tokens.
+                # decision_reasoning = getattr(operations, "decision_reasoning", None)
+                # if decision_reasoning is not None:
+                #     logger.info(  # TEMP_MEMORY_BADCASE_LOG: remove after bad-case analysis
+                #         "[TEMP_MEMORY_BADCASE_LOG][DECISION_REASONING] %s",
+                #         JsonUtils.dumps(decision_reasoning),
+                #     )
                 logger.info(  # TEMP_MEMORY_BADCASE_LOG: remove after bad-case analysis
                     "[TEMP_MEMORY_BADCASE_LOG] parsed_operations=%s",
                     JsonUtils.dumps(operations),
