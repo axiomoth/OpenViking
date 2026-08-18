@@ -246,6 +246,10 @@ The final output of the model must strictly follow the JSON Schema format shown 
 
         for uri in self.context_provider.read_file_contents:
             self._extract_context.page_id_map.get_page_id(uri)
+        logger.info(  # TEMP_MEMORY_BADCASE_LOG: remove after bad-case analysis
+            "[TEMP_MEMORY_BADCASE_LOG] page_id_map=%s",
+            self._extract_context.page_id_map._id_to_uri,
+        )
 
         while iteration < max_iterations:
             iteration += 1
@@ -360,6 +364,10 @@ The final output of the model must strictly follow the JSON Schema format shown 
                 raise RuntimeError("ReAct loop completed but no operations generated")
 
         tracer.info(f"final_operations={final_operations.model_dump_json(indent=4)}")
+        logger.info(  # TEMP_MEMORY_BADCASE_LOG: remove after bad-case analysis
+            "[TEMP_MEMORY_BADCASE_LOG] final_operations=%s",
+            final_operations.model_dump_json(),
+        )
 
         # Resolve links after the loop completes using the URIs already bound in resolve_operations().
         await self.finalize_operations(final_operations, raw_links)
@@ -368,6 +376,10 @@ The final output of the model must strictly follow the JSON Schema format shown 
 
     async def resolve_operations(self, operations) -> tuple[ResolvedOperations, List]:
         tracer.info(f"operations={JsonUtils.dumps(operations)}")
+        logger.info(  # TEMP_MEMORY_BADCASE_LOG: remove after bad-case analysis
+            "[TEMP_MEMORY_BADCASE_LOG] resolve_input=%s",
+            JsonUtils.dumps(operations),
+        )
         upsert_operations: List[ResolvedOperation] = []
         delete_file_contents: List[MemoryFile] = []
         errors: List[str] = []
@@ -694,6 +706,9 @@ The final output of the model must strictly follow the JSON Schema format shown 
             try:
                 # print(f'LLM response content: {content}')
                 logger.debug(f"[assistant]\n{content}")
+                logger.info(  # TEMP_MEMORY_BADCASE_LOG: remove after bad-case analysis
+                    "[TEMP_MEMORY_BADCASE_LOG] raw_llm_response=%s", content
+                )
 
                 # Use cached operations_model and expected_fields
                 operations, error = parse_json_with_stability(
@@ -715,6 +730,10 @@ The final output of the model must strictly follow the JSON Schema format shown 
                     )
                     return (None, None)
 
+                logger.info(  # TEMP_MEMORY_BADCASE_LOG: remove after bad-case analysis
+                    "[TEMP_MEMORY_BADCASE_LOG] parsed_operations=%s",
+                    JsonUtils.dumps(operations),
+                )
                 return (None, operations)
             except Exception as e:
                 logger.exception(f"Error parsing operations: {e}")
