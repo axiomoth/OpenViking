@@ -68,6 +68,7 @@ class _Tracker:
 class _Sessions:
     def __init__(self):
         self.calls = 0
+        self.contexts: list[RequestContext] = []
         self.retry_state = {"state": "failed_ready", "archive_uri": None}
 
     async def inspect_failed_commit(
@@ -79,6 +80,7 @@ class _Sessions:
         archive_uri=None,
         failed_task_created_at=None,
     ):
+        self.contexts.append(_ctx)
         assert archive_uri is None
         assert failed_task_created_at is not None
         return self.retry_state
@@ -93,6 +95,7 @@ class _Sessions:
         failed_task_created_at=None,
     ):
         self.calls += 1
+        self.contexts.append(_ctx)
         assert archive_uri is None
         assert failed_task_created_at is not None
         return {"task_id": "retry-task"}
@@ -185,6 +188,34 @@ async def test_retry_creates_a_linked_attempt_and_returns_its_task_id(monkeypatc
             "user_id": "alice",
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_root_retry_uses_the_task_owner_context(monkeypatch):
+    task = _failed_task()
+    task.account_id = "tenant-b"
+    task.user_id = "bob"
+    tracker = _Tracker(task)
+    service = _Service()
+    monkeypatch.setattr(task_router, "get_task_tracker", lambda: tracker)
+    monkeypatch.setattr(task_router, "get_service", lambda: service)
+    root_ctx = RequestContext(
+        user=UserIdentifier("system", "root"),
+        role=Role.ROOT,
+        actor_peer_id="peer-1",
+        api_key="root-key",
+    )
+
+    response = await task_router.retry_task("failed-task", task_router.RetryTaskRequest(), root_ctx)
+
+    assert response.result["disposition"] == "accepted"
+    assert len(service.sessions.contexts) == 2
+    for task_ctx in service.sessions.contexts:
+        assert task_ctx.account_id == "tenant-b"
+        assert task_ctx.user.user_id == "bob"
+        assert task_ctx.role == Role.ROOT
+        assert task_ctx.actor_peer_id == "peer-1"
+        assert task_ctx.api_key == "root-key"
 
 
 @pytest.mark.asyncio
