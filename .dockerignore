@@ -9,6 +9,7 @@ __pycache__
 htmlcov
 web-studio/node_modules
 web-studio/dist
+openviking/web_studio/dist
 web-studio/.vite
 node_modules
 *.log
