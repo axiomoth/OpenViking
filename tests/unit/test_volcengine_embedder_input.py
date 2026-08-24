@@ -12,6 +12,7 @@ from openviking.models.embedder.volcengine_embedders import (
 _MULTIMODAL_INPUT = [
     {"type": "text", "text": "diagram of a heat exchanger"},
     {"type": "image_url", "image_url": {"url": "https://example.test/image.png"}},
+    {"type": "video_url", "video_url": {"url": "https://example.test/video.mp4"}},
 ]
 
 

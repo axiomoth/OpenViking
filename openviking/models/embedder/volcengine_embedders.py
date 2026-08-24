@@ -410,7 +410,9 @@ class VolcengineSparseEmbedder(SparseEmbedderBase):
         The provider accepts the request at the endpoint level, but rejects an
         image part whenever ``sparse_embedding`` is enabled. Returning ``False``
         makes the common embedder guard retain the extracted text and drop image
-        parts before the provider call.
+        parts before the provider call. Image-only search remains unsupported and
+        is rejected by the retrieval capability check instead of embedding empty
+        text.
         """
         return False
 
@@ -499,7 +501,8 @@ class VolcengineHybridEmbedder(HybridEmbedderBase):
 
         A hybrid provider request enables sparse embedding, for which image and
         video parts are unsupported. The base guard performs a deterministic
-        text-only downgrade instead of submitting a request that must fail.
+        text-only downgrade for mixed content. Image-only search remains
+        unsupported because dropping its only input would produce an empty query.
         """
         return False
 
