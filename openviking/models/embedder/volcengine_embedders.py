@@ -407,12 +407,12 @@ class VolcengineSparseEmbedder(SparseEmbedderBase):
     def supports_multimodal(self) -> bool:
         """Sparse vectors require text-only input even on the multimodal endpoint.
 
-        The provider accepts the request at the endpoint level, but rejects an
-        image part whenever ``sparse_embedding`` is enabled. Returning ``False``
-        makes the common embedder guard retain the extracted text and drop image
-        parts before the provider call. Image-only search remains unsupported and
-        is rejected by the retrieval capability check instead of embedding empty
-        text.
+        The provider accepts the request at the endpoint level, but rejects
+        non-text parts (images and videos) whenever ``sparse_embedding`` is
+        enabled. Returning ``False`` makes the common embedder guard retain the
+        extracted text and drop those parts before the provider call. Image-only
+        search remains unsupported and is rejected by the retrieval capability
+        check instead of embedding empty text.
         """
         return False
 
