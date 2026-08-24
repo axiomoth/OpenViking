@@ -291,7 +291,7 @@ async def test_completed_retry_changes_failed_predecessor_to_completed(
     assert predecessor.result == {"memories_extracted": 1}
 
 
-async def test_listing_tasks_reconciles_a_completed_retry_from_persistent_storage():
+async def test_listing_tasks_reconciles_a_completed_retry_from_persistent_storage(monkeypatch):
     store = PersistentTaskStore(_FakeAgfs())
     tracker1 = TaskTracker(store=store)
     first = await tracker1.create("session_commit", resource_id="session-1", **_owner_kwargs())
@@ -308,7 +308,6 @@ async def test_listing_tasks_reconciles_a_completed_retry_from_persistent_storag
 
     failed_payload = await store.get(first.task_id, **_owner_kwargs())
     assert failed_payload is not None
-    failed_payload["status"] = "failed"
     failed_payload["stage"] = "failed"
     failed_payload["error"] = "provider overloaded"
     failed_payload["error_info"] = classify_task_error("provider overloaded")
@@ -316,9 +315,19 @@ async def test_listing_tasks_reconciles_a_completed_retry_from_persistent_storag
     await store.update(TaskRecord(**failed_payload))
 
     tracker2 = TaskTracker(store=store)
+    load_calls = 0
+    original_load_all = tracker2._load_all_from_store
+
+    async def counted_load_all(account_id, user_id):
+        nonlocal load_calls
+        load_calls += 1
+        return await original_load_all(account_id, user_id)
+
+    monkeypatch.setattr(tracker2, "_load_all_from_store", counted_load_all)
     tasks = await tracker2.list_tasks(**_owner_kwargs())
     predecessor = next(task for task in tasks if task.task_id == first.task_id)
     assert predecessor.status == TaskStatus.COMPLETED
+    assert load_calls == 1
 
 
 async def test_get_nonexistent_returns_none(tracker: TaskTracker):

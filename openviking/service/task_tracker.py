@@ -693,6 +693,8 @@ class TaskTracker:
     async def _complete_failed_operation_tasks_on_owner(
         self,
         completed: TaskRecord,
+        *,
+        refresh_from_store: bool = True,
     ) -> None:
         if (
             completed.status != TaskStatus.COMPLETED
@@ -701,9 +703,10 @@ class TaskTracker:
             or not completed.user_id
         ):
             return
-        self._merge_loaded_tasks(
-            await self._load_all_from_store(completed.account_id, completed.user_id)
-        )
+        if refresh_from_store:
+            self._merge_loaded_tasks(
+                await self._load_all_from_store(completed.account_id, completed.user_id)
+            )
         failed_task_ids = [
             task.task_id
             for task in self._cache_snapshot()
@@ -734,7 +737,10 @@ class TaskTracker:
             and task.attempt_number > 1
         ]
         for completed in completed_retries:
-            await self._complete_failed_operation_tasks_on_owner(completed)
+            await self._complete_failed_operation_tasks_on_owner(
+                completed,
+                refresh_from_store=False,
+            )
 
     async def find_active(
         self,

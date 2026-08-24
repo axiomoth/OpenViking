@@ -169,7 +169,8 @@ async def retry_task(
             archive_uri=(task.meta or {}).get("archive_uri"),
             failed_task_created_at=task.created_at,
         )
-        if retry_state.get("state") == "completed":
+        archive_state = retry_state.get("state")
+        if archive_state == "completed":
             await tracker.resolve_failed(
                 task.task_id,
                 {
@@ -188,6 +189,30 @@ async def retry_task(
                     "task_id": task.task_id,
                     "resolution": "archive_complete",
                     "archive_uri": retry_state.get("archive_uri"),
+                },
+            )
+        if archive_state != "failed_ready":
+            archive_error = (
+                {
+                    "code": "RETRY_ARCHIVE_UNAVAILABLE",
+                    "retryability": "manual",
+                    "action": "Restore the failed commit archive before retrying.",
+                }
+                if archive_state == "unavailable"
+                else {
+                    "code": "RETRY_ARCHIVE_NOT_READY",
+                    "retryability": "manual",
+                    "action": "Wait for the failed commit archive to reach a retryable state.",
+                }
+            )
+            return Response(
+                status="ok",
+                result={
+                    "disposition": "blocked",
+                    "operation_id": task.operation_id or task.task_id,
+                    "previous_task_id": task.task_id,
+                    "archive_state": archive_state,
+                    "error": archive_error,
                 },
             )
 

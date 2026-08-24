@@ -68,7 +68,7 @@ class _Tracker:
 class _Sessions:
     def __init__(self):
         self.calls = 0
-        self.retry_state = {"state": "unavailable", "archive_uri": None}
+        self.retry_state = {"state": "failed_ready", "archive_uri": None}
 
     async def inspect_failed_commit(
         self,
@@ -135,6 +135,34 @@ async def test_retry_reports_completed_legacy_archive_before_credential_prompt(m
     assert response.result["task_id"] == "failed-task"
     assert tracker.task.status == TaskStatus.COMPLETED
     assert service.sessions.calls == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("archive_state", "error_code"),
+    [
+        ("unavailable", "RETRY_ARCHIVE_UNAVAILABLE"),
+        ("not_ready", "RETRY_ARCHIVE_NOT_READY"),
+    ],
+)
+async def test_retry_blocks_when_commit_archive_is_not_retryable(
+    monkeypatch,
+    archive_state,
+    error_code,
+):
+    tracker = _Tracker(_failed_task())
+    service = _Service()
+    service.sessions.retry_state = {"state": archive_state, "archive_uri": None}
+    monkeypatch.setattr(task_router, "get_task_tracker", lambda: tracker)
+    monkeypatch.setattr(task_router, "get_service", lambda: service)
+
+    response = await task_router.retry_task("failed-task", task_router.RetryTaskRequest(), _ctx())
+
+    assert response.result["disposition"] == "blocked"
+    assert response.result["archive_state"] == archive_state
+    assert response.result["error"]["code"] == error_code
+    assert service.sessions.calls == 0
+    assert tracker.link_calls == []
 
 
 @pytest.mark.asyncio
