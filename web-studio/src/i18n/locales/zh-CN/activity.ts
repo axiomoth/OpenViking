@@ -1,7 +1,7 @@
 const activity = {
   sessions: {
     page: {
-      placeholder: '会话与 Bot 工作区能力尚未接入。',
+      placeholder: '会话与机器人工作区功能尚未接入。',
     },
     threadList: {
       title: '会话',
@@ -77,16 +77,16 @@ const activity = {
     identityPicker: {
       useCurrent: '以当前身份授权',
       noCurrent:
-        '尚未配置身份。请先在“连接与身份”中登录，或在下方临时粘贴一个 API key。',
+        '尚未配置身份。请先在“连接与身份”中登录，或在下方临时粘贴一个 API 密钥。',
       useSelect: '授权指定的账号 / 用户',
       selectAccountLabel: '账号',
       selectUserLabel: '用户',
       selectNoKey:
-        '该用户没有 API key，请选择其他用户，或在“连接与身份”中重新生成。',
+        '该用户没有 API 密钥，请选择其他用户，或在“连接与身份”中重新生成。',
       selectAccountAdminHint: '你只能为本账号下的用户授权。',
-      useCustom: '使用其他 API key',
-      customKeyLabel: 'API key',
-      customKeyPlaceholder: '粘贴一个 API key（不会持久化）',
+      useCustom: '使用其他 API 密钥',
+      customKeyLabel: 'API 密钥',
+      customKeyPlaceholder: '粘贴一个 API 密钥（不会持久化）',
     },
     consent: {
       title: '授权 {{clientName}}',
@@ -98,7 +98,7 @@ const activity = {
       scopesLabel: '权限范围',
       scopesNone: '（无）',
       signInRequired:
-        '请先在“连接与身份”中登录 OpenViking Studio，或在下方临时粘贴 API key 完成授权。',
+        '请先在“连接与身份”中登录 OpenViking Studio，或在下方临时粘贴 API 密钥完成授权。',
       openConnectionSettings: '打开连接与身份',
       authorize: '授权',
       deny: '拒绝',
@@ -108,7 +108,7 @@ const activity = {
       denying: '正在拒绝…',
       denied: '已拒绝，可以关闭此页。',
       verifyError: '授权失败：{{message}}',
-      noApiKey: '没有可用的 API key。请选择一个身份或粘贴 key。',
+      noApiKey: '没有可用的 API 密钥。请选择一个身份或粘贴密钥。',
     },
     verify: {
       title: '跨设备验证',
@@ -119,9 +119,9 @@ const activity = {
       success: '已为 {{clientName}} 授权，可以关闭此页并回到原设备。',
       successUnknownClient: '已授权，可以关闭此页并回到原设备。',
       verifyError: '授权失败：{{message}}',
-      noApiKey: '没有可用的 API key。请选择一个身份或粘贴 key。',
+      noApiKey: '没有可用的 API 密钥。请选择一个身份或粘贴密钥。',
       signInRequired:
-        '请先在“连接与身份”中登录 OpenViking Studio，或在下方临时粘贴 API key 完成授权。',
+        '请先在“连接与身份”中登录 OpenViking Studio，或在下方临时粘贴 API 密钥完成授权。',
     },
   },
   playground: {
@@ -129,11 +129,11 @@ const activity = {
     copied: '已复制 URI',
     copyFailed: '复制失败',
     resizeContext: '调整上下文目录宽度',
-    resizeAction: '调整 Terminal 和 Agent 宽度',
+    resizeAction: '调整终端和智能体面板宽度',
     readFailed: '无法读取 {{uri}}',
     tabs: {
       terminal: '终端',
-      agent: 'Agent',
+      agent: '智能体',
     },
     addResource: {
       title: '添加资源',
@@ -151,35 +151,35 @@ const activity = {
       search: '搜索上下文',
       refresh: '刷新目录',
       namespaces: {
-        agent: 'Agent 的能力、工具和经验',
+        agent: '智能体的能力、工具和经验',
         user: '用户个性化记忆',
-        resources: 'Agent 可引用的外部资源',
+        resources: '智能体可引用的外部资源',
       },
     },
     agent: {
       history: '历史会话',
       newSession: '新建会话',
-      creating: '正在创建 Playground 会话...',
-      detectingBot: '正在检测 bot 模式...',
+      creating: '正在创建实验场会话...',
+      detectingBot: '正在检测机器人模式...',
       createFailed: '创建会话失败：{{error}}',
       retry: '重试',
-      botDisabledFooter: '开启 bot 模式后可使用 Agent 对话',
-      historyTitle: 'Agent 会话历史',
+      botDisabledFooter: '开启机器人模式后即可与智能体对话',
+      historyTitle: '智能体会话历史',
       historyDescription:
-        '这里只展示实验场右侧 Agent 使用过的会话；新建会话会开启一个空白 Agent 上下文。',
+        '这里只展示实验场右侧智能体使用过的会话；新建会话会开启一个空白的智能体上下文。',
       loadingSessions: '正在加载会话...',
       noSessions: '暂无历史会话',
-      createTimeout: '创建 Playground 会话超时，请检查连接设置后重试。',
-      newSessionTitle: '新建 Playground 会话',
+      createTimeout: '创建实验场会话超时，请检查连接设置后重试。',
+      newSessionTitle: '新建实验场会话',
       botPrompt: {
-        title: '请开启 bot 模式',
+        title: '请开启机器人模式',
         description:
-          '当前服务未启用 Agent 对话能力，请使用 bot 模式启动服务后重试。',
+          '当前服务未启用智能体对话功能，请使用机器人模式启动服务后重试。',
         command: 'openviking-server --with-bot',
         retry: '重新检测',
       },
       empty: {
-        heading: 'Agent 动作会和左侧目录联动',
+        heading: '智能体操作会与左侧目录联动',
         body: '发送问题后，tool call 输出里的 `viking://` 文件会变成可点击链接，点击即可在左侧定位并在中间打开。',
         prompts: [
           '总结当前目录',
@@ -222,7 +222,7 @@ const activity = {
         '用法：/session [current|list|create|switch|get|context|messages|archive|commit|extract|message|used|tool-results|tool-result|tool-search|delete] ...',
       sessionDeleteUsage: '用法：/session delete <session_id>',
       sessionMissing:
-        '当前没有 active session，请先打开 Agent 面板创建会话，或指定 session_id。',
+        '当前没有活动会话，请先打开智能体面板创建会话，或指定 session_id。',
       sessionCurrentBody: '当前 active session：{{id}}',
       sessionListBody: '共有 {{count}} 个 session。',
       sessionCreatedBody: '已创建并切换到 session：{{id}}',
@@ -245,8 +245,8 @@ const activity = {
         },
         addMemory: {
           title: '添加记忆',
-          command: 'Agent 对话后自动沉淀',
-          code: '在 Agent 面板发送消息，然后提交会话',
+          command: '智能体对话后自动沉淀',
+          code: '在智能体面板发送消息，然后提交会话',
         },
         find: {
           title: '查找相关上下文',
@@ -280,7 +280,7 @@ const activity = {
         sessionId: {
           name: 'session_id',
           description:
-            '可选。省略时多数子命令使用当前 Agent session；delete 必须显式指定。',
+            '可选。省略时，多数子命令使用当前智能体会话；delete 必须显式指定。',
         },
         archiveId: {
           name: 'archive_id',
@@ -288,7 +288,7 @@ const activity = {
         },
         messageRole: {
           name: 'role',
-          description: 'message 子命令使用，支持 user 或 assistant。',
+          description: '用于 message 子命令，角色值支持 user 或 assistant。',
         },
         messageContent: {
           name: 'content',
@@ -308,7 +308,7 @@ const activity = {
         },
         tokenBudget: {
           name: '--token-budget 数量',
-          description: 'context 子命令使用，限制组装上下文的 token 预算。',
+          description: '用于 context 子命令，限制组装上下文的 Token 预算。',
         },
         toolName: {
           name: '--tool-name 名称',
@@ -343,7 +343,7 @@ const activity = {
         status: {
           default: {
             code: '/status',
-            description: '检查 Agent 和 API 连通状态',
+            description: '检查智能体和 API 的连通状态',
           },
         },
         ls: {
@@ -411,7 +411,7 @@ const activity = {
           },
           switch: {
             code: '/session switch <session_id>',
-            description: '切换 Agent 面板会话',
+            description: '切换智能体面板会话',
           },
           get: {
             code: '/session get [session_id]',
@@ -540,7 +540,7 @@ const activity = {
           usage: '/add-resource',
         },
         session: {
-          description: '管理 Agent 会话',
+          description: '管理智能体会话',
           usage: '/session 子命令',
         },
         tree: {

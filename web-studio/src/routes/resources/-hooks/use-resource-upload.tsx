@@ -1,6 +1,8 @@
 import * as React from 'react'
+import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
+import i18n from '#/i18n'
 import {
   getTasks,
   getOvResult,
@@ -175,6 +177,7 @@ export function ResourceUploadProvider({
 }: {
   children: React.ReactNode
 }) {
+  const { t } = useTranslation('resources', { i18n })
   const [tasks, setTasks] = React.useState<ResourceUploadTask[]>([])
   const [remoteState, setRemoteState] =
     React.useState<RemoteUploadState>(INITIAL_REMOTE_STATE)
@@ -270,7 +273,7 @@ export function ResourceUploadProvider({
           ? uploadResult.temp_file_id
           : undefined
         if (typeof tempFileId !== 'string' || !tempFileId.trim()) {
-          throw new Error('Temp upload did not return temp_file_id.')
+          throw new Error(t('processingTasks.errors.tempUploadMissingId'))
         }
 
         updateTask(taskId, (task) => ({
@@ -484,7 +487,7 @@ export function ResourceUploadProvider({
               progress: null,
               finishedAt: Date.now(),
               errorCode: 'CANCELED',
-              errorMessage: 'Canceled',
+              errorMessage: t('processingTasks.errors.cancelled'),
             }))
             return
           }
@@ -576,7 +579,8 @@ export function ResourceUploadProvider({
           ? {
               ...prev,
               phase: 'idle',
-              error: remoteTask.errorMessage || 'Processing failed',
+              error:
+                remoteTask.errorMessage || t('processingTasks.errors.failed'),
             }
           : prev,
       )
@@ -589,7 +593,9 @@ export function ResourceUploadProvider({
           ? {
               ...prev,
               phase: 'idle',
-              error: remoteTask.errorMessage || 'Processing cancelled',
+              error:
+                remoteTask.errorMessage ||
+                t('processingTasks.errors.cancelled'),
             }
           : prev,
       )

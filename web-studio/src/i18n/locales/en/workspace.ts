@@ -83,6 +83,21 @@ const workspace = {
       unhealthy: 'Some components need attention',
       components: '{{healthy}} of {{total}} components healthy',
     },
+    queue: {
+      title: 'Task queue',
+      noData: 'No queue data',
+      queueName: 'Queue',
+      processing: 'Active',
+      pending: 'Pending',
+      completed: 'Completed',
+      errors: 'Errors',
+      totalRow: 'Total',
+      embedding: 'Embedding',
+      semanticNodes: 'Semantic nodes',
+      semantic: 'Semantic processing',
+      externalParse: 'External parsing',
+      sessionCommit: 'Session commit',
+    },
     tabs: {
       label: 'Monitoring type',
       overview: 'Overview',
@@ -433,6 +448,14 @@ const workspace = {
         label: 'User',
         placeholder: 'default',
       },
+    },
+    errors: {
+      identitySwitchUnsupported:
+        'The current server mode does not support identity switching.',
+      credentialMismatch:
+        'The selected credential does not match the target account and user.',
+      rootRequired:
+        'Only a validated Root credential can switch management accounts.',
     },
   },
   settings: {

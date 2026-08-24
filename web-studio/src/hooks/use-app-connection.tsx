@@ -1,6 +1,7 @@
 import * as React from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useRouterState } from '@tanstack/react-router'
+import { useTranslation } from 'react-i18next'
 
 import { fetchAdminAccounts } from '#/lib/admin'
 import { isOvClientError, ovClient } from '#/lib/ov-client'
@@ -480,6 +481,7 @@ export function AppConnectionProvider({
 }: {
   children: React.ReactNode
 }) {
+  const { t } = useTranslation('connection')
   const queryClient = useQueryClient()
   const authPromptSuppressedUntilRef = React.useRef(0)
   const navigate = useNavigate()
@@ -700,9 +702,7 @@ export function AppConnectionProvider({
         userId,
       }) => {
         if (serverMode === 'dev' || serverMode === 'checking') {
-          throw new Error(
-            'The current server mode does not support identity switching.',
-          )
+          throw new Error(t('errors.identitySwitchUnsupported'))
         }
 
         const requested = normalizeConnectionDraft({
@@ -718,9 +718,7 @@ export function AppConnectionProvider({
           allowLegacyIdentityFallback,
         )
         if (!resolvedIdentity) {
-          throw new Error(
-            'The selected credential does not match the target account and user.',
-          )
+          throw new Error(t('errors.credentialMismatch'))
         }
 
         if (pathname === '/playground') {
@@ -737,9 +735,7 @@ export function AppConnectionProvider({
       },
       switchManagementAccount: async (accountId) => {
         if (connectionRole !== 'root') {
-          throw new Error(
-            'Only a validated Root credential can switch management accounts.',
-          )
+          throw new Error(t('errors.rootRequired'))
         }
         commitConnection(
           createManagementAccountConnection(connection, accountId),
@@ -756,6 +752,7 @@ export function AppConnectionProvider({
     pathname,
     queryClient,
     serverMode,
+    t,
   ])
 
   return (
