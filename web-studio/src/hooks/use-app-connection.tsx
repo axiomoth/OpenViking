@@ -1,8 +1,8 @@
 import * as React from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useRouterState } from '@tanstack/react-router'
-import { useTranslation } from 'react-i18next'
 
+import i18n from '#/i18n'
 import { fetchAdminAccounts } from '#/lib/admin'
 import { isOvClientError, ovClient } from '#/lib/ov-client'
 
@@ -58,6 +58,15 @@ type AppConnectionContextValue = {
 
 const CONNECTION_STORAGE_KEY = 'ov_console_connection'
 const AUTH_PROMPT_SUPPRESSION_MS = 10000
+
+type ConnectionErrorKey =
+  | 'credentialMismatch'
+  | 'identitySwitchUnsupported'
+  | 'rootRequired'
+
+export function createConnectionError(key: ConnectionErrorKey): Error {
+  return new Error(i18n.t(`connection:errors.${key}`))
+}
 
 const ENV_BASE_URL =
   typeof import.meta.env.VITE_OV_BASE_URL === 'string'
@@ -481,7 +490,6 @@ export function AppConnectionProvider({
 }: {
   children: React.ReactNode
 }) {
-  const { t } = useTranslation('connection')
   const queryClient = useQueryClient()
   const authPromptSuppressedUntilRef = React.useRef(0)
   const navigate = useNavigate()
@@ -702,7 +710,7 @@ export function AppConnectionProvider({
         userId,
       }) => {
         if (serverMode === 'dev' || serverMode === 'checking') {
-          throw new Error(t('errors.identitySwitchUnsupported'))
+          throw createConnectionError('identitySwitchUnsupported')
         }
 
         const requested = normalizeConnectionDraft({
@@ -718,7 +726,7 @@ export function AppConnectionProvider({
           allowLegacyIdentityFallback,
         )
         if (!resolvedIdentity) {
-          throw new Error(t('errors.credentialMismatch'))
+          throw createConnectionError('credentialMismatch')
         }
 
         if (pathname === '/playground') {
@@ -735,7 +743,7 @@ export function AppConnectionProvider({
       },
       switchManagementAccount: async (accountId) => {
         if (connectionRole !== 'root') {
-          throw new Error(t('errors.rootRequired'))
+          throw createConnectionError('rootRequired')
         }
         commitConnection(
           createManagementAccountConnection(connection, accountId),
@@ -752,7 +760,6 @@ export function AppConnectionProvider({
     pathname,
     queryClient,
     serverMode,
-    t,
   ])
 
   return (

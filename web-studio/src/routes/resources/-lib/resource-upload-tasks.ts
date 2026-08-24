@@ -99,6 +99,31 @@ function mergeServerTask(
       : getServerTaskName(record)
   const isFinished =
     status === 'success' || status === 'failed' || status === 'cancelled'
+  const hasErrorStatus = status === 'failed' || status === 'cancelled'
+  const recordError =
+    hasErrorStatus && typeof record.error === 'string' && record.error.trim()
+      ? record.error
+      : null
+  const existingError =
+    hasErrorStatus &&
+    existing?.errorMessage &&
+    existing.errorMessageOrigin !== 'fallback'
+      ? existing.errorMessage
+      : null
+  const fallbackError =
+    status === 'failed'
+      ? fallbackMessages.failed
+      : status === 'cancelled'
+        ? fallbackMessages.cancelled
+        : null
+  const errorMessage = recordError || existingError || fallbackError
+  const errorMessageOrigin = recordError
+    ? 'server'
+    : existingError
+      ? existing?.errorMessageOrigin
+      : fallbackError
+        ? 'fallback'
+        : undefined
 
   return {
     id: existing?.id ?? `server-${record.task_id}`,
@@ -115,12 +140,8 @@ function mergeServerTask(
       status === 'failed'
         ? (existing?.errorCode ?? 'SERVER_TASK_FAILED')
         : null,
-    errorMessage:
-      status === 'failed'
-        ? record.error || fallbackMessages.failed
-        : status === 'cancelled'
-          ? record.error || fallbackMessages.cancelled
-          : null,
+    errorMessage,
+    errorMessageOrigin,
     rootUri,
   }
 }
