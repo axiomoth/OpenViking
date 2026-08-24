@@ -223,7 +223,13 @@ export function ResourceUploadProvider({
           }),
         )
         const serverTasks = normalizeTaskList(result)
-        setTasks((prev) => mergeServerTasks(prev, serverTasks))
+        const fallbackMessages = {
+          failed: i18n.t('resources:processingTasks.errors.failed'),
+          cancelled: i18n.t('resources:processingTasks.errors.cancelled'),
+        }
+        setTasks((prev) =>
+          mergeServerTasks(prev, serverTasks, fallbackMessages),
+        )
       } catch (error) {
         if (options.notifyOnError !== false) {
           toast.error(getErrorMessage(error), { duration: 5000 })
@@ -273,7 +279,9 @@ export function ResourceUploadProvider({
           ? uploadResult.temp_file_id
           : undefined
         if (typeof tempFileId !== 'string' || !tempFileId.trim()) {
-          throw new Error(t('processingTasks.errors.tempUploadMissingId'))
+          throw new Error(
+            i18n.t('resources:processingTasks.errors.tempUploadMissingId'),
+          )
         }
 
         updateTask(taskId, (task) => ({
@@ -294,7 +302,10 @@ export function ResourceUploadProvider({
 
         if (addResult.status === 'error') {
           const errors = Array.isArray(addResult.errors) ? addResult.errors : []
-          throw new Error(errors.join('; ') || 'Processing failed')
+          throw new Error(
+            errors.join('; ') ||
+              i18n.t('resources:processingTasks.errors.failed'),
+          )
         }
 
         const rootUri =
@@ -421,7 +432,10 @@ export function ResourceUploadProvider({
 
           if (result.status === 'error') {
             const errors = Array.isArray(result.errors) ? result.errors : []
-            throw new Error(errors.join('; ') || 'Processing failed')
+            throw new Error(
+              errors.join('; ') ||
+                i18n.t('resources:processingTasks.errors.failed'),
+            )
           }
 
           const warnings = Array.isArray(result.warnings) ? result.warnings : []
@@ -487,7 +501,9 @@ export function ResourceUploadProvider({
               progress: null,
               finishedAt: Date.now(),
               errorCode: 'CANCELED',
-              errorMessage: t('processingTasks.errors.cancelled'),
+              errorMessage: i18n.t(
+                'resources:processingTasks.errors.cancelled',
+              ),
             }))
             return
           }
@@ -530,7 +546,7 @@ export function ResourceUploadProvider({
 
   React.useEffect(() => {
     void refreshTasks({ notifyOnError: false, silent: true })
-  }, [refreshTasks])
+  }, [refreshTasks, t])
 
   const hasActiveServerTasks = React.useMemo(
     () =>
@@ -600,7 +616,7 @@ export function ResourceUploadProvider({
           : prev,
       )
     }
-  }, [remoteState.phase, remoteState.taskId, tasks])
+  }, [remoteState.phase, remoteState.taskId, t, tasks])
 
   React.useEffect(() => {
     for (const task of tasks) {

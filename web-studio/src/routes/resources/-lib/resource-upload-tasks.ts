@@ -85,6 +85,7 @@ function toUploadStatus(
 
 function mergeServerTask(
   record: TaskRecord,
+  fallbackMessages: { failed: string; cancelled: string },
   existing?: ResourceUploadTask,
 ): ResourceUploadTask {
   const status = toUploadStatus(record.status)
@@ -116,9 +117,9 @@ function mergeServerTask(
         : null,
     errorMessage:
       status === 'failed'
-        ? record.error || existing?.errorMessage || 'Processing failed'
+        ? record.error || fallbackMessages.failed
         : status === 'cancelled'
-          ? record.error || 'Processing cancelled'
+          ? record.error || fallbackMessages.cancelled
           : null,
     rootUri,
   }
@@ -127,6 +128,7 @@ function mergeServerTask(
 export function mergeServerTasks(
   previous: ResourceUploadTask[],
   serverTasks: TaskRecord[],
+  fallbackMessages: { failed: string; cancelled: string },
 ): ResourceUploadTask[] {
   const previousByServerId = new Map<string, ResourceUploadTask>()
   for (const task of previous) {
@@ -142,7 +144,7 @@ export function mergeServerTasks(
     if (existing) {
       consumedLocalIds.add(existing.id)
     }
-    return mergeServerTask(record, existing)
+    return mergeServerTask(record, fallbackMessages, existing)
   })
 
   for (const task of previous) {

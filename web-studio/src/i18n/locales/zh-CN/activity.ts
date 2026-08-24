@@ -137,8 +137,7 @@ const activity = {
     },
     addResource: {
       title: '添加资源',
-      description:
-        '添加完成后左侧目录树会刷新，右侧 Terminal 可继续定位新资源。',
+      description: '添加完成后左侧目录树会刷新，右侧终端可继续定位新资源。',
       submitted: '资源添加任务已提交',
     },
     explorer: {
@@ -180,7 +179,7 @@ const activity = {
       },
       empty: {
         heading: '智能体操作会与左侧目录联动',
-        body: '发送问题后，tool call 输出里的 `viking://` 文件会变成可点击链接，点击即可在左侧定位并在中间打开。',
+        body: '发送问题后，工具调用输出里的 `viking://` 文件会变成可点击链接，点击即可在左侧定位并在中间打开。',
         prompts: [
           '总结当前目录',
           '递归查找相关文档',
@@ -195,7 +194,7 @@ const activity = {
       historyDescription: '查看当前浏览器中执行过的命令。',
       clearHistory: '清空命令历史',
       noHistory: '暂无命令历史',
-      welcomeTitle: 'Terminal 已连接上下文目录',
+      welcomeTitle: '终端已连接上下文目录',
       welcomeBody:
         '可执行 /status、/ls、/search、/read、/add-resource。/search 默认全局检索，可通过 --scope . 使用当前目录，或通过 --scope viking://resources/... 指定目录。',
       scopeLabel: '目录：{{uri}}',
@@ -214,7 +213,7 @@ const activity = {
       currentScopeAction: '使用当前目录',
       readUsage: '用法：/read viking://resources/...',
       enterUri: '请输入 viking:// URI',
-      hits: '命中 resources {{resources}} 条，memory {{memories}} 条，skill {{skills}} 条。',
+      hits: '命中资源 {{resources}} 条、记忆 {{memories}} 条、技能 {{skills}} 条。',
       addResourceBody:
         '已打开添加资源弹窗。提交后左侧目录会刷新，也可以用 /ls 或 /search 继续定位新内容。',
       addResourceTitle: '添加资源',
@@ -223,12 +222,12 @@ const activity = {
       sessionDeleteUsage: '用法：/session delete <session_id>',
       sessionMissing:
         '当前没有活动会话，请先打开智能体面板创建会话，或指定 session_id。',
-      sessionCurrentBody: '当前 active session：{{id}}',
-      sessionListBody: '共有 {{count}} 个 session。',
-      sessionCreatedBody: '已创建并切换到 session：{{id}}',
-      sessionSwitchedBody: '已切换到 session：{{id}}',
-      sessionDeletedBody: '已删除 session：{{id}}',
-      sessionMessageAddedBody: '已向 session {{id}} 添加消息。',
+      sessionCurrentBody: '当前活动会话：{{id}}',
+      sessionListBody: '共有 {{count}} 个会话。',
+      sessionCreatedBody: '已创建并切换到会话：{{id}}',
+      sessionSwitchedBody: '已切换到会话：{{id}}',
+      sessionDeletedBody: '已删除会话：{{id}}',
+      sessionMessageAddedBody: '已向会话 {{id}} 添加消息。',
       unknownCommand:
         '未知命令。可用命令：/status、/ls、/search、/find、/read、/session、/add-resource。',
       commandFailed: '命令失败',
@@ -292,7 +291,7 @@ const activity = {
         },
         messageContent: {
           name: 'content',
-          description: 'message 子命令使用，要追加到 session 的文本内容。',
+          description: 'message 子命令使用，要追加到会话的文本内容。',
         },
         contexts: {
           name: '--context uri',
@@ -300,7 +299,7 @@ const activity = {
         },
         skillJson: {
           name: '--skill-json JSON',
-          description: 'used 子命令使用，记录实际使用的 skill 信息。',
+          description: 'used 子命令使用，记录实际使用的技能信息。',
         },
         keepRecent: {
           name: '--keep-recent 数量',
@@ -399,15 +398,15 @@ const activity = {
         session: {
           current: {
             code: '/session',
-            description: '查看当前 active session',
+            description: '查看当前活动会话',
           },
           list: {
             code: '/session list',
-            description: '列出所有 session',
+            description: '列出所有会话',
           },
           create: {
             code: '/session create [session_id]',
-            description: '创建并切换到新 session',
+            description: '创建并切换到新会话',
           },
           switch: {
             code: '/session switch <session_id>',
@@ -415,15 +414,15 @@ const activity = {
           },
           get: {
             code: '/session get [session_id]',
-            description: '查看 session 元信息',
+            description: '查看会话元信息',
           },
           context: {
             code: '/session context [session_id] --token-budget 8000',
-            description: '读取组装后的 session context',
+            description: '读取组装后的会话上下文',
           },
           messages: {
             code: '/session messages [session_id]',
-            description: '读取 session 消息列表',
+            description: '读取会话消息列表',
           },
           archive: {
             code: '/session archive [session_id] <archive_id>',
@@ -435,15 +434,15 @@ const activity = {
           },
           extract: {
             code: '/session extract [session_id]',
-            description: '从 session 中提取记忆',
+            description: '从会话中提取记忆',
           },
           message: {
             code: '/session message [session_id] user hello',
-            description: '向 session 追加消息',
+            description: '向会话追加消息',
           },
           used: {
             code: '/session used [session_id] --context viking://resources/...',
-            description: '记录实际使用的上下文或 skill',
+            description: '记录实际使用的上下文或技能',
           },
           toolResults: {
             code: '/session tool-results [session_id] --limit 20',
@@ -459,7 +458,7 @@ const activity = {
           },
           delete: {
             code: '/session delete <session_id>',
-            description: '删除指定 session',
+            description: '删除指定会话',
           },
         },
         tree: {

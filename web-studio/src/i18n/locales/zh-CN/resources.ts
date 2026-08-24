@@ -14,7 +14,7 @@ const resources = {
     description:
       '查看当前身份下服务端审计到的 API 请求，包括状态、耗时和请求标识。',
     disabled: {
-      description: 'Usage/Audit 未初始化，暂无服务端请求日志。',
+      description: '用量/审计功能未初始化，暂无服务端请求日志。',
       title: '审计日志不可用',
     },
     details: {
