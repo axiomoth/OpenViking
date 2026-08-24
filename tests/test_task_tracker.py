@@ -308,7 +308,6 @@ async def test_listing_tasks_reconciles_a_completed_retry_from_persistent_storag
 
     failed_payload = await store.get(first.task_id, **_owner_kwargs())
     assert failed_payload is not None
-    failed_payload["status"] = "failed"
     failed_payload["stage"] = "failed"
     failed_payload["error"] = "provider overloaded"
     failed_payload["error_info"] = classify_task_error("provider overloaded")

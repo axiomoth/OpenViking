@@ -25,7 +25,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from '#/components/ui/sheet'
-import { getOvResult, getTaskByTaskId } from '#/lib/ov-client'
+import { getOvResult, getTaskByTaskId, isOvClientError } from '#/lib/ov-client'
 import { cn } from '#/lib/utils'
 import { formatTaskDuration, getTaskDate } from '#/routes/tasks/-lib/task-time'
 
@@ -45,7 +45,7 @@ type TaskDetailSheetProps = {
   taskId: string | null
 }
 
-async function fetchTask(
+export async function fetchTask(
   taskId: string,
   notFoundMessage: string,
 ): Promise<TaskRecord> {
@@ -75,7 +75,10 @@ async function fetchTask(
     const task = normalizeTaskRecord(result)
     if (task) return task
   } catch (err) {
-    console.warn('[fetchTask] Backend fetch failed for taskId:', taskId, err)
+    if (isOvClientError(err) && err.code === 'NOT_FOUND') {
+      throw new Error(notFoundMessage)
+    }
+    throw err
   }
 
   throw new Error(notFoundMessage)

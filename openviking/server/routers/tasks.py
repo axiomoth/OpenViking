@@ -23,6 +23,7 @@ from openviking_cli.exceptions import (
     OpenVikingError,
     PermissionDeniedError,
 )
+from openviking_cli.session.user_id import UserIdentifier
 
 router = APIRouter(prefix="/api/v1", tags=["tasks"])
 
@@ -37,6 +38,19 @@ class RetryTaskRequest(BaseModel):
 
 
 MAX_LINKED_RETRY_ATTEMPTS = 3
+
+
+def _task_owner_context(task, ctx: RequestContext) -> RequestContext:
+    """Run ROOT retries in the task owner's storage namespace."""
+    if ctx.role != Role.ROOT or not task.account_id or not task.user_id:
+        return ctx
+    return RequestContext(
+        user=UserIdentifier(task.account_id, task.user_id),
+        role=ctx.role,
+        actor_peer_id=ctx.actor_peer_id,
+        from_oauth=ctx.from_oauth,
+        api_key=ctx.api_key,
+    )
 
 
 @router.get("/tasks/{task_id}")
@@ -134,6 +148,7 @@ async def retry_task(
         raise FailedPreconditionError("Only failed tasks can be retried")
     if not task.resource_id:
         raise FailedPreconditionError("Task has no retryable resource")
+    task_ctx = _task_owner_context(task, _ctx)
 
     resolved = await tracker.find_completed_operation(
         task.task_type,
@@ -165,7 +180,7 @@ async def retry_task(
         retry_state = await service.sessions.inspect_failed_commit(
             task.resource_id,
             task.task_id,
-            _ctx,
+            task_ctx,
             archive_uri=(task.meta or {}).get("archive_uri"),
             failed_task_created_at=task.created_at,
         )
@@ -242,7 +257,7 @@ async def retry_task(
         result = await service.sessions.retry_failed_commit(
             task.resource_id,
             task.task_id,
-            _ctx,
+            task_ctx,
             archive_uri=(task.meta or {}).get("archive_uri"),
             failed_task_created_at=task.created_at,
         )
@@ -251,7 +266,7 @@ async def retry_task(
             uri=task.resource_id,
             mode="vectors_only",
             wait=False,
-            ctx=_ctx,
+            ctx=task_ctx,
         )
     else:
         raise FailedPreconditionError(

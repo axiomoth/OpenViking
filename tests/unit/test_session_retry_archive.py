@@ -4,6 +4,7 @@
 
 import json
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -87,4 +88,58 @@ async def test_retry_returns_resolved_when_legacy_archive_is_already_complete():
         "task_id": None,
         "archive_uri": ARCHIVE_URI,
         "reason": "archive_complete",
+    }
+
+
+@pytest.mark.asyncio
+async def test_retry_marks_created_task_failed_when_enqueue_fails(monkeypatch):
+    session = Session.__new__(Session)
+    session._viking_fs = SimpleNamespace(
+        _async_agfs=SimpleNamespace(
+            pathlock_acquire_tree=AsyncMock(return_value="lease"),
+            pathlock_release=AsyncMock(),
+            rm=AsyncMock(),
+        ),
+        _uri_to_path=lambda uri, **_kwargs: uri,
+        _pathlock_fs_ctx=lambda *_args: SimpleNamespace(),
+        read_file=AsyncMock(return_value='{"error":"provider overloaded"}'),
+        write_file=AsyncMock(),
+    )
+    session._session_uri = SESSION_URI
+    session.session_id = "session-1"
+    session.ctx = SimpleNamespace(
+        account_id="acme",
+        user=SimpleNamespace(user_id="alice"),
+    )
+    queue_payload = {
+        "task_id": "failed-task",
+        "session_id": "session-1",
+        "session_uri": SESSION_URI,
+        "archive_uri": ARCHIVE_URI,
+        "user": {"account_id": "acme", "user_id": "alice"},
+    }
+    session._find_failed_commit_archive = AsyncMock(return_value=(ARCHIVE_URI, queue_payload))
+    session._archive_file_exists = AsyncMock(side_effect=[False, True, False])
+    session._read_archive_meta = AsyncMock(
+        return_value={"phase1": {"queue_message": queue_payload}}
+    )
+    session._merge_archive_meta = AsyncMock()
+
+    tracker = SimpleNamespace(create=AsyncMock(), fail=AsyncMock())
+    queue_manager = SimpleNamespace(
+        enqueue=AsyncMock(side_effect=RuntimeError("queue unavailable"))
+    )
+    monkeypatch.setattr("openviking.service.task_tracker.get_task_tracker", lambda: tracker)
+    monkeypatch.setattr("openviking.storage.queuefs.get_queue_manager", lambda: queue_manager)
+
+    with pytest.raises(RuntimeError, match="queue unavailable"):
+        await session.retry_failed_commit("failed-task", archive_uri=ARCHIVE_URI)
+
+    tracker.fail.assert_awaited_once()
+    failed_task_id, failure_message = tracker.fail.await_args.args
+    assert failed_task_id != "failed-task"
+    assert failure_message == "Failed to enqueue session commit retry"
+    assert tracker.fail.await_args.kwargs == {
+        "account_id": "acme",
+        "user_id": "alice",
     }

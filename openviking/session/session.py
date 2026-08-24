@@ -2348,9 +2348,11 @@ class Session:
                 self._viking_fs._uri_to_path(failed_uri, ctx=self.ctx),
                 fs_ctx=self._viking_fs._pathlock_fs_ctx(self.ctx, lease),
             )
+            tracker = get_task_tracker()
+            retry_task_created = False
             try:
                 await self._merge_archive_meta(selected_uri, {"phase1": phase1}, lease_ref=lease)
-                await get_task_tracker().create(
+                await tracker.create(
                     "session_commit",
                     resource_id=self.session_id,
                     account_id=self.ctx.account_id,
@@ -2358,11 +2360,25 @@ class Session:
                     task_id=retry_task_id,
                     meta={"archive_uri": selected_uri, "retry_of": failed_task_id},
                 )
+                retry_task_created = True
                 await get_queue_manager().enqueue(
                     QueueManager.SESSION_COMMIT,
                     retry_message.to_dict(),
                 )
             except Exception:
+                if retry_task_created:
+                    try:
+                        await tracker.fail(
+                            retry_task_id,
+                            "Failed to enqueue session commit retry",
+                            account_id=self.ctx.account_id,
+                            user_id=self.ctx.user.user_id,
+                        )
+                    except Exception:
+                        logger.exception(
+                            "Failed to mark retry task %s after queue enqueue failure",
+                            retry_task_id,
+                        )
                 await self._merge_archive_meta(
                     selected_uri, {"phase1": original_phase1}, lease_ref=lease
                 )
