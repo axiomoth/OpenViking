@@ -10,7 +10,7 @@ endpoints to check completion, results, or errors.
 from typing import Optional
 
 from fastapi import APIRouter, Body, Depends, Query
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from openviking.server.auth import get_request_context
 from openviking.server.dependencies import get_service
@@ -35,6 +35,8 @@ class RetryTaskRequest(BaseModel):
 
     acknowledge_change: bool = False
     restart_operation: bool = False
+    owner_account_id: Optional[str] = Field(default=None, min_length=1)
+    owner_user_id: Optional[str] = Field(default=None, min_length=1)
 
 
 MAX_LINKED_RETRY_ATTEMPTS = 3
@@ -44,6 +46,8 @@ def _task_owner_context(task, ctx: RequestContext) -> RequestContext:
     """Run ROOT retries in the task owner's storage namespace."""
     if ctx.role != Role.ROOT or not task.account_id or not task.user_id:
         return ctx
+    if task.account_id == SYSTEM_TASK_ACCOUNT_ID and task.user_id == SYSTEM_TASK_USER_ID:
+        return ctx
     return RequestContext(
         user=UserIdentifier(task.account_id, task.user_id),
         role=ctx.role,
@@ -51,6 +55,14 @@ def _task_owner_context(task, ctx: RequestContext) -> RequestContext:
         from_oauth=ctx.from_oauth,
         api_key=ctx.api_key,
     )
+
+
+def _task_response(task, *, include_owner: bool):
+    result = task.to_dict()
+    if include_owner and task.account_id and task.user_id:
+        result["owner_account_id"] = task.account_id
+        result["owner_user_id"] = task.user_id
+    return result
 
 
 @router.get("/tasks/{task_id}")
@@ -80,7 +92,10 @@ async def get_task(
             code="NOT_FOUND",
             details={"resource": task_id, "type": "task"},
         )
-    return Response(status="ok", result=task.to_dict())
+    return Response(
+        status="ok",
+        result=_task_response(task, include_owner=_ctx.role == Role.ROOT),
+    )
 
 
 @router.post("/tasks/{task_id}/cancel")
@@ -115,17 +130,25 @@ async def retry_task(
     body: RetryTaskRequest = Body(default_factory=RetryTaskRequest),
     _ctx: RequestContext = Depends(get_request_context),
 ):
-    """Retry a failed task and return the task that now owns the work."""
+    """Retry a failed task and return a stable retry disposition.
+
+    Possible dispositions are accepted, blocked, operation_resolved,
+    already_running, retry_limit_reached, and no_action.
+    """
     tracker = get_task_tracker()
     if _ctx.role == Role.ROOT:
-        task = await tracker.get(task_id)
-        if task is None:
-            task = await tracker.get(
-                task_id,
-                account_id=SYSTEM_TASK_ACCOUNT_ID,
-                user_id=SYSTEM_TASK_USER_ID,
+        if body.owner_account_id is None or body.owner_user_id is None:
+            raise FailedPreconditionError(
+                "ROOT retries require both owner_account_id and owner_user_id"
             )
+        task = await tracker.get(
+            task_id,
+            account_id=body.owner_account_id,
+            user_id=body.owner_user_id,
+        )
     else:
+        if body.owner_account_id is not None or body.owner_user_id is not None:
+            raise PermissionDeniedError("Only ROOT may specify a task owner")
         task = await tracker.get(task_id, account_id=_ctx.account_id, user_id=_ctx.user.user_id)
     if task is None:
         raise OpenVikingError(
@@ -393,4 +416,7 @@ async def list_tasks(
             account_id=_ctx.account_id,
             user_id=_ctx.user.user_id,
         )
-    return Response(status="ok", result=[t.to_dict() for t in tasks])
+    return Response(
+        status="ok",
+        result=[_task_response(task, include_owner=_ctx.role == Role.ROOT) for task in tasks],
+    )

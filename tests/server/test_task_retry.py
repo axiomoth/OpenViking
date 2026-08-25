@@ -7,6 +7,7 @@ import pytest
 from openviking.server.identity import RequestContext, Role
 from openviking.server.routers import tasks as task_router
 from openviking.service.task_tracker import TaskRecord, TaskStatus
+from openviking_cli.exceptions import FailedPreconditionError, PermissionDeniedError
 from openviking_cli.session.user_id import UserIdentifier
 
 
@@ -27,14 +28,28 @@ def _failed_task(*, error: str = "provider overloaded", attempt_number: int = 1)
     )
 
 
+def test_task_response_only_exposes_owner_to_root_callers():
+    task = _failed_task()
+
+    regular_response = task_router._task_response(task, include_owner=False)
+    root_response = task_router._task_response(task, include_owner=True)
+
+    assert "owner_account_id" not in regular_response
+    assert "owner_user_id" not in regular_response
+    assert root_response["owner_account_id"] == "acme"
+    assert root_response["owner_user_id"] == "alice"
+
+
 class _Tracker:
     def __init__(self, task: TaskRecord):
         self.task = task
         self.link_calls: list[dict] = []
         self.resolve_calls: list[dict] = []
+        self.get_calls: list[dict] = []
         self.resolved_task: TaskRecord | None = None
 
-    async def get(self, task_id, **_kwargs):
+    async def get(self, task_id, **kwargs):
+        self.get_calls.append({"task_id": task_id, **kwargs})
         return self.task if task_id == self.task.task_id else None
 
     async def find_active(self, *_args, **_kwargs):
@@ -70,6 +85,7 @@ class _Sessions:
         self.calls = 0
         self.contexts: list[RequestContext] = []
         self.retry_state = {"state": "failed_ready", "archive_uri": None}
+        self.retry_result = {"task_id": "retry-task"}
 
     async def inspect_failed_commit(
         self,
@@ -98,7 +114,7 @@ class _Sessions:
         self.contexts.append(_ctx)
         assert archive_uri is None
         assert failed_task_created_at is not None
-        return {"task_id": "retry-task"}
+        return self.retry_result
 
 
 class _Service:
@@ -206,7 +222,14 @@ async def test_root_retry_uses_the_task_owner_context(monkeypatch):
         api_key="root-key",
     )
 
-    response = await task_router.retry_task("failed-task", task_router.RetryTaskRequest(), root_ctx)
+    response = await task_router.retry_task(
+        "failed-task",
+        task_router.RetryTaskRequest(
+            owner_account_id="tenant-b",
+            owner_user_id="bob",
+        ),
+        root_ctx,
+    )
 
     assert response.result["disposition"] == "accepted"
     assert len(service.sessions.contexts) == 2
@@ -216,6 +239,145 @@ async def test_root_retry_uses_the_task_owner_context(monkeypatch):
         assert task_ctx.role == Role.ROOT
         assert task_ctx.actor_peer_id == "peer-1"
         assert task_ctx.api_key == "root-key"
+
+
+@pytest.mark.asyncio
+async def test_root_retry_requires_an_explicit_owner(monkeypatch):
+    tracker = _Tracker(_failed_task())
+    monkeypatch.setattr(task_router, "get_task_tracker", lambda: tracker)
+    root_ctx = RequestContext(
+        user=UserIdentifier("system", "root"),
+        role=Role.ROOT,
+    )
+
+    with pytest.raises(FailedPreconditionError, match="both owner_account_id and owner_user_id"):
+        await task_router.retry_task("failed-task", task_router.RetryTaskRequest(), root_ctx)
+
+    assert tracker.get_calls == []
+
+
+@pytest.mark.asyncio
+async def test_root_retry_accepts_an_explicit_system_owner(monkeypatch):
+    task = _failed_task()
+    task.account_id = task_router.SYSTEM_TASK_ACCOUNT_ID
+    task.user_id = task_router.SYSTEM_TASK_USER_ID
+    tracker = _Tracker(task)
+    service = _Service()
+    monkeypatch.setattr(task_router, "get_task_tracker", lambda: tracker)
+    monkeypatch.setattr(task_router, "get_service", lambda: service)
+    root_ctx = RequestContext(
+        user=UserIdentifier("system", "root"),
+        role=Role.ROOT,
+    )
+
+    response = await task_router.retry_task(
+        "failed-task",
+        task_router.RetryTaskRequest(
+            owner_account_id=task_router.SYSTEM_TASK_ACCOUNT_ID,
+            owner_user_id=task_router.SYSTEM_TASK_USER_ID,
+        ),
+        root_ctx,
+    )
+
+    assert response.result["disposition"] == "accepted"
+    assert tracker.get_calls == [
+        {
+            "task_id": "failed-task",
+            "account_id": task_router.SYSTEM_TASK_ACCOUNT_ID,
+            "user_id": task_router.SYSTEM_TASK_USER_ID,
+        }
+    ]
+    assert service.sessions.contexts == [root_ctx, root_ctx]
+
+
+@pytest.mark.asyncio
+async def test_root_retry_loads_persisted_task_with_explicit_owner(monkeypatch):
+    task = _failed_task()
+    task.account_id = "tenant-b"
+    task.user_id = "bob"
+    tracker = _Tracker(task)
+    service = _Service()
+
+    async def load_from_store(task_id, **kwargs):
+        tracker.get_calls.append({"task_id": task_id, **kwargs})
+        if kwargs == {"account_id": "tenant-b", "user_id": "bob"}:
+            return task
+        return None
+
+    tracker.get = load_from_store
+    monkeypatch.setattr(task_router, "get_task_tracker", lambda: tracker)
+    monkeypatch.setattr(task_router, "get_service", lambda: service)
+    root_ctx = RequestContext(
+        user=UserIdentifier("system", "root"),
+        role=Role.ROOT,
+    )
+    body = task_router.RetryTaskRequest(
+        owner_account_id="tenant-b",
+        owner_user_id="bob",
+    )
+
+    response = await task_router.retry_task("failed-task", body, root_ctx)
+
+    assert response.result["disposition"] == "accepted"
+    assert tracker.get_calls == [
+        {
+            "task_id": "failed-task",
+            "account_id": "tenant-b",
+            "user_id": "bob",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_root_retry_rejects_an_incomplete_owner(monkeypatch):
+    tracker = _Tracker(_failed_task())
+    monkeypatch.setattr(task_router, "get_task_tracker", lambda: tracker)
+    root_ctx = RequestContext(
+        user=UserIdentifier("system", "root"),
+        role=Role.ROOT,
+    )
+
+    with pytest.raises(FailedPreconditionError, match="both owner_account_id and owner_user_id"):
+        await task_router.retry_task(
+            "failed-task",
+            task_router.RetryTaskRequest(owner_account_id="tenant-b"),
+            root_ctx,
+        )
+
+    assert tracker.get_calls == []
+
+
+@pytest.mark.asyncio
+async def test_non_root_retry_rejects_an_explicit_owner(monkeypatch):
+    tracker = _Tracker(_failed_task())
+    monkeypatch.setattr(task_router, "get_task_tracker", lambda: tracker)
+
+    with pytest.raises(PermissionDeniedError, match="Only ROOT may specify a task owner"):
+        await task_router.retry_task(
+            "failed-task",
+            task_router.RetryTaskRequest(
+                owner_account_id="tenant-b",
+                owner_user_id="bob",
+            ),
+            _ctx(),
+        )
+
+    assert tracker.get_calls == []
+
+
+@pytest.mark.asyncio
+async def test_retry_reports_no_action_when_service_starts_no_task(monkeypatch):
+    tracker = _Tracker(_failed_task())
+    service = _Service()
+    service.sessions.retry_result = {"reason": "nothing_to_retry"}
+    monkeypatch.setattr(task_router, "get_task_tracker", lambda: tracker)
+    monkeypatch.setattr(task_router, "get_service", lambda: service)
+
+    response = await task_router.retry_task("failed-task", task_router.RetryTaskRequest(), _ctx())
+
+    assert response.result["disposition"] == "no_action"
+    assert response.result["result"] == {"reason": "nothing_to_retry"}
+    assert tracker.link_calls == []
 
 
 @pytest.mark.asyncio
