@@ -3,6 +3,7 @@
 """Unit tests for legacy session commit archive resolution."""
 
 import json
+from hashlib import sha256
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -92,7 +93,7 @@ async def test_retry_returns_resolved_when_legacy_archive_is_already_complete():
 
 
 @pytest.mark.asyncio
-async def test_retry_marks_created_task_failed_when_enqueue_fails(monkeypatch):
+async def test_retry_rolls_back_safe_history_when_enqueue_fails(monkeypatch):
     session = Session.__new__(Session)
     session._viking_fs = SimpleNamespace(
         _async_agfs=SimpleNamespace(
@@ -132,14 +133,22 @@ async def test_retry_marks_created_task_failed_when_enqueue_fails(monkeypatch):
     monkeypatch.setattr("openviking.service.task_tracker.get_task_tracker", lambda: tracker)
     monkeypatch.setattr("openviking.storage.queuefs.get_queue_manager", lambda: queue_manager)
 
+    failed_task_id = "../failed/task"
     with pytest.raises(RuntimeError, match="queue unavailable"):
-        await session.retry_failed_commit("failed-task", archive_uri=ARCHIVE_URI)
+        await session.retry_failed_commit(failed_task_id, archive_uri=ARCHIVE_URI)
 
     tracker.fail.assert_awaited_once()
-    failed_task_id, failure_message = tracker.fail.await_args.args
-    assert failed_task_id != "failed-task"
+    retry_task_id, failure_message = tracker.fail.await_args.args
+    assert retry_task_id != failed_task_id
     assert failure_message == "Failed to enqueue session commit retry"
     assert tracker.fail.await_args.kwargs == {
         "account_id": "acme",
         "user_id": "alice",
     }
+    failure_history_id = sha256(failed_task_id.encode("utf-8")).hexdigest()
+    failure_history_uri = f"{ARCHIVE_URI}/.failed.{failure_history_id}.json"
+    assert session._viking_fs.write_file.await_args_list[0].args == (
+        failure_history_uri,
+        '{"error":"provider overloaded"}',
+    )
+    assert session._viking_fs._async_agfs.rm.await_args_list[-1].args == (failure_history_uri,)

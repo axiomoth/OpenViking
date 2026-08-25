@@ -2327,7 +2327,8 @@ class Session:
             retry_task_id = str(uuid4())
             retry_message = SessionCommitMsg(**{**queued.to_dict(), "task_id": retry_task_id})
             failed_uri = f"{selected_uri}/.failed.json"
-            failure_history_uri = f"{selected_uri}/.failed.{failed_task_id}.json"
+            failure_history_id = sha256_text(failed_task_id)
+            failure_history_uri = f"{selected_uri}/.failed.{failure_history_id}.json"
             failure_content = await self._viking_fs.read_file(failed_uri, ctx=self.ctx)
             phase1 = (await self._read_archive_meta(selected_uri)).get("phase1")
             if not isinstance(phase1, dict):
@@ -2338,19 +2339,21 @@ class Session:
             phase1["queue_message"] = retry_message.to_dict()
             phase1["retry_history"] = retry_history
 
-            await self._viking_fs.write_file(
-                failure_history_uri,
-                failure_content,
-                ctx=self.ctx,
-                lease_ref=lease,
-            )
-            await self._viking_fs._async_agfs.rm(
-                self._viking_fs._uri_to_path(failed_uri, ctx=self.ctx),
-                fs_ctx=self._viking_fs._pathlock_fs_ctx(self.ctx, lease),
-            )
             tracker = get_task_tracker()
             retry_task_created = False
+            failure_history_written = False
             try:
+                await self._viking_fs.write_file(
+                    failure_history_uri,
+                    failure_content,
+                    ctx=self.ctx,
+                    lease_ref=lease,
+                )
+                failure_history_written = True
+                await self._viking_fs._async_agfs.rm(
+                    self._viking_fs._uri_to_path(failed_uri, ctx=self.ctx),
+                    fs_ctx=self._viking_fs._pathlock_fs_ctx(self.ctx, lease),
+                )
                 await self._merge_archive_meta(selected_uri, {"phase1": phase1}, lease_ref=lease)
                 await tracker.create(
                     "session_commit",
@@ -2379,16 +2382,36 @@ class Session:
                             "Failed to mark retry task %s after queue enqueue failure",
                             retry_task_id,
                         )
-                await self._merge_archive_meta(
-                    selected_uri, {"phase1": original_phase1}, lease_ref=lease
-                )
-                if not await self._archive_file_exists(selected_uri, ".failed.json"):
-                    await self._viking_fs.write_file(
-                        failed_uri,
-                        failure_content,
-                        ctx=self.ctx,
-                        lease_ref=lease,
+                phase1_rolled_back = False
+                try:
+                    await self._merge_archive_meta(
+                        selected_uri, {"phase1": original_phase1}, lease_ref=lease
                     )
+                    phase1_rolled_back = True
+                except Exception:
+                    logger.exception("Failed to roll back retry metadata for %s", selected_uri)
+                try:
+                    if not await self._archive_file_exists(selected_uri, ".failed.json"):
+                        await self._viking_fs.write_file(
+                            failed_uri,
+                            failure_content,
+                            ctx=self.ctx,
+                            lease_ref=lease,
+                        )
+                except Exception:
+                    logger.exception("Failed to restore retry marker for %s", selected_uri)
+                if failure_history_written and phase1_rolled_back:
+                    try:
+                        await self._viking_fs._async_agfs.rm(
+                            self._viking_fs._uri_to_path(failure_history_uri, ctx=self.ctx),
+                            fs_ctx=self._viking_fs._pathlock_fs_ctx(self.ctx, lease),
+                        )
+                    except Exception as cleanup_exc:
+                        if not _is_storage_not_found(cleanup_exc):
+                            logger.exception(
+                                "Failed to remove rolled-back retry history %s",
+                                failure_history_uri,
+                            )
                 raise
         finally:
             await self._viking_fs._async_agfs.pathlock_release(lease)
