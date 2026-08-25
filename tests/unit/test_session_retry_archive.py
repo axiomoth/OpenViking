@@ -94,6 +94,7 @@ async def test_retry_returns_resolved_when_legacy_archive_is_already_complete():
 
 @pytest.mark.asyncio
 async def test_retry_rolls_back_safe_history_when_enqueue_fails(monkeypatch):
+    events: list[str] = []
     session = Session.__new__(Session)
     session._viking_fs = SimpleNamespace(
         _async_agfs=SimpleNamespace(
@@ -124,11 +125,22 @@ async def test_retry_rolls_back_safe_history_when_enqueue_fails(monkeypatch):
     session._read_archive_meta = AsyncMock(
         return_value={"phase1": {"queue_message": queue_payload}}
     )
-    session._merge_archive_meta = AsyncMock()
+    session._merge_archive_meta = AsyncMock(
+        side_effect=lambda *_args, **_kwargs: events.append("merge")
+    )
 
-    tracker = SimpleNamespace(create=AsyncMock(), fail=AsyncMock())
-    queue_manager = SimpleNamespace(
-        enqueue=AsyncMock(side_effect=RuntimeError("queue unavailable"))
+    tracker = SimpleNamespace(
+        create=AsyncMock(side_effect=lambda *_args, **_kwargs: events.append("create")),
+        fail=AsyncMock(),
+    )
+
+    def fail_enqueue(*_args, **_kwargs):
+        events.append("enqueue")
+        raise RuntimeError("queue unavailable")
+
+    queue_manager = SimpleNamespace(enqueue=AsyncMock(side_effect=fail_enqueue))
+    session._viking_fs._async_agfs.rm.side_effect = lambda uri, **_kwargs: events.append(
+        f"remove:{uri}"
     )
     monkeypatch.setattr("openviking.service.task_tracker.get_task_tracker", lambda: tracker)
     monkeypatch.setattr("openviking.storage.queuefs.get_queue_manager", lambda: queue_manager)
@@ -152,3 +164,9 @@ async def test_retry_rolls_back_safe_history_when_enqueue_fails(monkeypatch):
         '{"error":"provider overloaded"}',
     )
     assert session._viking_fs._async_agfs.rm.await_args_list[-1].args == (failure_history_uri,)
+    assert events[:4] == [
+        "merge",
+        "create",
+        f"remove:{ARCHIVE_URI}/.failed.json",
+        "enqueue",
+    ]

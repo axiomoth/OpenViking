@@ -31,6 +31,7 @@ import { formatTaskDuration, getTaskDate } from '#/routes/tasks/-lib/task-time'
 
 import {
   getTaskFailureGuidance,
+  hasTaskFailureGuidance,
   hasTaskResult,
   normalizeTaskRecord,
   normalizeTaskStatus,
@@ -153,6 +154,7 @@ export function TaskDetailSheet({
           ) : task ? (
             (() => {
               const status = normalizeTaskStatus(task.status)
+              const showFailureGuidance = hasTaskFailureGuidance(task)
               return (
                 <div className="grid gap-6">
                   <div className="grid grid-cols-2 gap-2">
@@ -240,7 +242,7 @@ export function TaskDetailSheet({
                     />
                   </div>
 
-                  {task.error_info?.action ? (
+                  {showFailureGuidance ? (
                     <DetailSection title={t('detail.failureGuidance')}>
                       <div className="rounded-xl border border-destructive/25 bg-destructive/5 p-3 text-sm text-foreground">
                         <p className="font-medium">

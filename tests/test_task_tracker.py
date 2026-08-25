@@ -207,6 +207,25 @@ async def test_fail_task(tracker: TaskTracker):
     assert retrieved.error_info["retryability"] == "retryable"
 
 
+async def test_get_cached_failed_task_survives_reconciliation_store_failure(
+    tracker: TaskTracker, monkeypatch
+):
+    task = await tracker.create("session_commit", **_owner_kwargs())
+    await tracker.fail(task.task_id, "LLM timeout", **_owner_kwargs())
+
+    async def fail_owner_load(account_id, user_id):
+        raise OSError("store unavailable")
+
+    monkeypatch.setattr(tracker, "_load_all_from_store", fail_owner_load)
+
+    retrieved = await tracker.get(task.task_id, **_owner_kwargs())
+
+    assert retrieved is not None
+    assert retrieved.task_id == task.task_id
+    assert retrieved.status == TaskStatus.FAILED
+    assert retrieved.error == "LLM timeout"
+
+
 async def test_legacy_failure_is_classified_when_serialized(tracker: TaskTracker):
     task = await tracker.create("session_commit", **_owner_kwargs())
     await tracker.fail(task.task_id, "token_expired")

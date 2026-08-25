@@ -152,6 +152,8 @@ function TasksRoute() {
         `/api/v1/tasks/${encodeURIComponent(task.task_id)}/retry`,
         {
           acknowledge_change: retryAcknowledgementTaskId === task.task_id,
+          owner_account_id: task.owner_account_id,
+          owner_user_id: task.owner_user_id,
           restart_operation: restartOperationTaskId === task.task_id,
         },
       )

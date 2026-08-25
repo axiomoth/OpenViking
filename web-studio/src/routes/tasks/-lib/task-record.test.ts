@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  getTaskFailureGuidance,
+  hasTaskFailureGuidance,
   hasTaskResult,
   isActiveTaskStatus,
   normalizeTaskRecord,
@@ -33,6 +35,23 @@ describe('task record helpers', () => {
     expect(hasTaskResult({})).toBe(false)
     expect(hasTaskResult([])).toBe(false)
     expect(hasTaskResult({ archive_uri: 'viking://archive' })).toBe(true)
+  })
+
+  it('shows failure guidance only when the task has a failure signal', () => {
+    expect(hasTaskFailureGuidance({ error_info: {} })).toBe(false)
+    expect(hasTaskFailureGuidance({ error: 'legacy failure' })).toBe(true)
+    expect(
+      hasTaskFailureGuidance({ error_info: { code: 'AUTH_EXPIRED' } }),
+    ).toBe(true)
+  })
+
+  it('keeps backend guidance for unknown Chinese error codes', () => {
+    expect(
+      getTaskFailureGuidance(
+        { action: 'Run the repair first.', code: 'NEW_FAILURE' },
+        'zh-CN',
+      ),
+    ).toBe('Run the repair first.')
   })
 
   it('recognizes task statuses that still require polling', () => {

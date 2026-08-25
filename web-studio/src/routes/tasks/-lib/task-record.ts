@@ -17,6 +17,8 @@ export type TaskRecord = TaskTimestamp & {
     retryability?: 'manual' | 'requires_change' | 'retryable'
   } | null
   operation_id?: string | null
+  owner_account_id?: string | null
+  owner_user_id?: string | null
   parent_task_id?: string | null
   attempt_number?: number
   resource_id?: string | null
@@ -81,6 +83,10 @@ export function hasTaskResult(result: unknown): boolean {
   return true
 }
 
+export function hasTaskFailureGuidance(task: TaskRecord): boolean {
+  return Boolean(task.error || task.error_info?.code || task.error_info?.action)
+}
+
 export function getTaskFailureGuidance(
   errorInfo: TaskRecord['error_info'],
   language: string,
@@ -99,5 +105,9 @@ export function getTaskFailureGuidance(
     SOURCE_MISSING: '原始来源已不存在。请恢复或替换来源后再重试。',
     TRANSIENT_UPSTREAM: '上游服务暂时繁忙或超时，可稍后重试。',
   }
-  return localized[errorInfo?.code || ''] || '请先查看失败详情并处理后再重试。'
+  return (
+    localized[errorInfo?.code || ''] ||
+    errorInfo?.action ||
+    '请先查看失败详情并处理后再重试。'
+  )
 }
