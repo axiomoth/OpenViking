@@ -1149,9 +1149,16 @@ class TaskTracker:
                 self._merge_loaded_tasks([task])
                 task = self._cached_task(task_id)
         if task is not None and task.status == TaskStatus.FAILED and user_id:
-            self._merge_loaded_tasks(await self._load_all_from_store(account_id, user_id))
-            await self._reconcile_completed_operations_on_owner(account_id, user_id)
-            task = self._cached_task(task_id)
+            try:
+                self._merge_loaded_tasks(await self._load_all_from_store(account_id, user_id))
+                await self._reconcile_completed_operations_on_owner(account_id, user_id)
+                task = self._cached_task(task_id)
+            except Exception:
+                logger.warning(
+                    "[TaskTracker] Failed to reconcile cached failed task %s",
+                    task_id,
+                    exc_info=True,
+                )
         if task is None or not self._matches_owner(task, account_id, user_id):
             return None
         return self._copy(task)

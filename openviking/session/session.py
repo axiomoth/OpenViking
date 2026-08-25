@@ -2350,10 +2350,6 @@ class Session:
                     lease_ref=lease,
                 )
                 failure_history_written = True
-                await self._viking_fs._async_agfs.rm(
-                    self._viking_fs._uri_to_path(failed_uri, ctx=self.ctx),
-                    fs_ctx=self._viking_fs._pathlock_fs_ctx(self.ctx, lease),
-                )
                 await self._merge_archive_meta(selected_uri, {"phase1": phase1}, lease_ref=lease)
                 await tracker.create(
                     "session_commit",
@@ -2364,6 +2360,10 @@ class Session:
                     meta={"archive_uri": selected_uri, "retry_of": failed_task_id},
                 )
                 retry_task_created = True
+                await self._viking_fs._async_agfs.rm(
+                    self._viking_fs._uri_to_path(failed_uri, ctx=self.ctx),
+                    fs_ctx=self._viking_fs._pathlock_fs_ctx(self.ctx, lease),
+                )
                 await get_queue_manager().enqueue(
                     QueueManager.SESSION_COMMIT,
                     retry_message.to_dict(),
