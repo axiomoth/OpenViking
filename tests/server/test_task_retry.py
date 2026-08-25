@@ -85,6 +85,7 @@ class _Sessions:
         self.calls = 0
         self.contexts: list[RequestContext] = []
         self.retry_state = {"state": "unavailable", "archive_uri": None}
+        self.retry_result = {"task_id": "retry-task"}
 
     async def inspect_failed_commit(
         self,
@@ -113,7 +114,7 @@ class _Sessions:
         self.contexts.append(_ctx)
         assert archive_uri is None
         assert failed_task_created_at is not None
-        return {"task_id": "retry-task"}
+        return self.retry_result
 
 
 class _Service:
@@ -212,6 +213,22 @@ async def test_root_retry_uses_the_task_owner_context(monkeypatch):
         assert task_ctx.role == Role.ROOT
         assert task_ctx.actor_peer_id == "peer-1"
         assert task_ctx.api_key == "root-key"
+
+
+@pytest.mark.asyncio
+async def test_retry_reports_no_action_when_service_starts_no_task(monkeypatch):
+    tracker = _Tracker(_failed_task())
+    service = _Service()
+    service.sessions.retry_state = {"state": "failed_ready", "archive_uri": None}
+    service.sessions.retry_result = {"reason": "nothing_to_retry"}
+    monkeypatch.setattr(task_router, "get_task_tracker", lambda: tracker)
+    monkeypatch.setattr(task_router, "get_service", lambda: service)
+
+    response = await task_router.retry_task("failed-task", task_router.RetryTaskRequest(), _ctx())
+
+    assert response.result["disposition"] == "no_action"
+    assert response.result["result"] == {"reason": "nothing_to_retry"}
+    assert tracker.link_calls == []
 
 
 @pytest.mark.asyncio

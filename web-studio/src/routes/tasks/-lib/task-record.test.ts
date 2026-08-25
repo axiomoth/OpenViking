@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  getTaskFailureCode,
   getTaskFailureGuidance,
   hasTaskFailureGuidance,
   hasTaskResult,
@@ -43,6 +44,11 @@ describe('task record helpers', () => {
     expect(
       hasTaskFailureGuidance({ error_info: { code: 'AUTH_EXPIRED' } }),
     ).toBe(true)
+  })
+
+  it('uses a fallback failure code for legacy tasks', () => {
+    expect(getTaskFailureCode(undefined)).toBe('TASK_FAILURE')
+    expect(getTaskFailureCode({ code: 'AUTH_EXPIRED' })).toBe('AUTH_EXPIRED')
   })
 
   it('keeps backend guidance for unknown Chinese error codes', () => {

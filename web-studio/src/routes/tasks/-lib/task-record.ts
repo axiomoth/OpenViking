@@ -87,6 +87,12 @@ export function hasTaskFailureGuidance(task: TaskRecord): boolean {
   return Boolean(task.error || task.error_info?.code || task.error_info?.action)
 }
 
+export function getTaskFailureCode(
+  errorInfo: TaskRecord['error_info'],
+): string {
+  return errorInfo?.code || 'TASK_FAILURE'
+}
+
 export function getTaskFailureGuidance(
   errorInfo: TaskRecord['error_info'],
   language: string,

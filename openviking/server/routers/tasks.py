@@ -130,7 +130,11 @@ async def retry_task(
     body: RetryTaskRequest = Body(default_factory=RetryTaskRequest),
     _ctx: RequestContext = Depends(get_request_context),
 ):
-    """Retry a failed task and return the task that now owns the work."""
+    """Retry a failed task and return a stable retry disposition.
+
+    Possible dispositions are accepted, blocked, operation_resolved,
+    already_running, retry_limit_reached, and no_action.
+    """
     tracker = get_task_tracker()
     if _ctx.role == Role.ROOT:
         if body.owner_account_id is None or body.owner_user_id is None:

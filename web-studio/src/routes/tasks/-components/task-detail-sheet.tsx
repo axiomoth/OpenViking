@@ -30,6 +30,7 @@ import { cn } from '#/lib/utils'
 import { formatTaskDuration, getTaskDate } from '#/routes/tasks/-lib/task-time'
 
 import {
+  getTaskFailureCode,
   getTaskFailureGuidance,
   hasTaskFailureGuidance,
   hasTaskResult,
@@ -246,7 +247,7 @@ export function TaskDetailSheet({
                     <DetailSection title={t('detail.failureGuidance')}>
                       <div className="rounded-xl border border-destructive/25 bg-destructive/5 p-3 text-sm text-foreground">
                         <p className="font-medium">
-                          {task.error_info.code || 'TASK_FAILURE'}
+                          {getTaskFailureCode(task.error_info)}
                         </p>
                         <p className="mt-1 text-muted-foreground">
                           {getTaskFailureGuidance(
