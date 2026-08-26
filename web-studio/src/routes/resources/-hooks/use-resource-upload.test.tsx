@@ -155,34 +155,37 @@ describe('ResourceUploadProvider remote completion', () => {
 
   it('updates an empty server error fallback when the language changes', async () => {
     const previousLanguage = i18n.language
-    await i18n.changeLanguage('en')
-    apiMocks.getTasks.mockResolvedValue([
-      {
-        created_at: 1,
-        status: 'failed',
-        task_id: 'resource-task',
-        task_type: 'add_resource',
-        updated_at: 2,
-      },
-    ])
+    try {
+      await i18n.changeLanguage('en')
+      apiMocks.getTasks.mockResolvedValue([
+        {
+          created_at: 1,
+          status: 'failed',
+          task_id: 'resource-task',
+          task_type: 'add_resource',
+          updated_at: 2,
+        },
+      ])
 
-    render(
-      <ResourceUploadProvider>
-        <UploadHarness onAccepted={vi.fn()} onCompleted={vi.fn()} />
-      </ResourceUploadProvider>,
-    )
+      render(
+        <ResourceUploadProvider>
+          <UploadHarness onAccepted={vi.fn()} onCompleted={vi.fn()} />
+        </ResourceUploadProvider>,
+      )
 
-    await waitFor(() =>
-      expect(screen.getByTestId('task-error').textContent).toBe(
-        'Processing failed',
-      ),
-    )
+      await waitFor(() =>
+        expect(screen.getByTestId('task-error').textContent).toBe(
+          'Processing failed',
+        ),
+      )
 
-    await i18n.changeLanguage('zh-CN')
+      await i18n.changeLanguage('zh-CN')
 
-    await waitFor(() =>
-      expect(screen.getByTestId('task-error').textContent).toBe('处理失败'),
-    )
-    await i18n.changeLanguage(previousLanguage)
+      await waitFor(() =>
+        expect(screen.getByTestId('task-error').textContent).toBe('处理失败'),
+      )
+    } finally {
+      await i18n.changeLanguage(previousLanguage)
+    }
   })
 })

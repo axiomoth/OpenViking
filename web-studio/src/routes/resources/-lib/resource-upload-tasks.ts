@@ -83,6 +83,10 @@ function toUploadStatus(
   return 'processing'
 }
 
+function isGenericServerTaskError(error: string): boolean {
+  return error.trim().toLowerCase() === 'resource processing failed'
+}
+
 function mergeServerTask(
   record: TaskRecord,
   fallbackMessages: { failed: string; cancelled: string },
@@ -101,7 +105,10 @@ function mergeServerTask(
     status === 'success' || status === 'failed' || status === 'cancelled'
   const hasErrorStatus = status === 'failed' || status === 'cancelled'
   const recordError =
-    hasErrorStatus && typeof record.error === 'string' && record.error.trim()
+    hasErrorStatus &&
+    typeof record.error === 'string' &&
+    record.error.trim() &&
+    !isGenericServerTaskError(record.error)
       ? record.error
       : null
   const existingError =

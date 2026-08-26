@@ -129,7 +129,7 @@ const workspace = {
         model: '模型',
         operation: '操作',
         prompt: '输入 Token',
-        provider: 'Provider',
+        provider: '供应商',
         queries: '查询次数',
         status: '状态',
         total: '合计',

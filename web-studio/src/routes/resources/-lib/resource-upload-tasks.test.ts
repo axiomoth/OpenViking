@@ -57,4 +57,25 @@ describe('mergeServerTasks', () => {
     expect(task.errorMessage).toBe('处理失败')
     expect(task.errorMessageOrigin).toBe('fallback')
   })
+
+  it('localizes the generic server processing error', () => {
+    const [task] = mergeServerTasks(
+      [],
+      [serverRecord('resource processing failed')],
+      { cancelled: '已取消', failed: '处理失败' },
+    )
+
+    expect(task.errorMessage).toBe('处理失败')
+    expect(task.errorMessageOrigin).toBe('fallback')
+  })
+
+  it('preserves a detailed server error', () => {
+    const [task] = mergeServerTasks([], [serverRecord('provider overloaded')], {
+      cancelled: '已取消',
+      failed: '处理失败',
+    })
+
+    expect(task.errorMessage).toBe('provider overloaded')
+    expect(task.errorMessageOrigin).toBe('server')
+  })
 })
