@@ -778,9 +778,9 @@ const workspace = {
     requestFailed: '请求失败',
     todayRetrievals: {
       description:
-        '展示今日成功调用语义检索 find() 和 search() 的次数，每天零点刷新。',
-      find: 'find',
-      search: 'search',
+        '展示今日基础检索（find()）和增强检索（search()）的成功调用次数，每天零点刷新。',
+      find: '基础检索',
+      search: '增强检索',
       title: '今日检索次数',
     },
     todayTokens: {
