@@ -7,14 +7,14 @@ const resources = {
   requestLogs: {
     accessRequired: {
       description:
-        '当前连接没有管理员或 Root 权限，无法显示请求日志。请在“连接与身份”中配置具备控制台用量和审计权限的 API 密钥。',
+        '当前连接没有管理员或 Root 权限，无法显示请求日志。请在“连接设置”中配置具备控制台用量和审计权限的 API 密钥。',
       title: '需要管理员权限',
     },
     clear: '清空',
     description:
       '查看当前身份下服务端审计到的 API 请求，包括状态、耗时和请求标识。',
     disabled: {
-      description: '用量/审计功能未初始化，暂无服务端请求日志。',
+      description: '用量和审计功能尚未初始化，暂无服务端请求日志。',
       title: '审计日志不可用',
     },
     details: {
@@ -35,7 +35,7 @@ const resources = {
       description: '无法从服务端加载审计请求日志。',
       title: '请求失败',
     },
-    eyebrow: '实验场遥测',
+    eyebrow: '工作台请求记录',
     filters: {
       all: '所有日志',
       apiTypePlaceholder: 'API 类型',
@@ -60,8 +60,9 @@ const resources = {
     reset: '重置',
     searchPlaceholder: '筛选方法、路径或状态码',
     scope: {
-      currentIdentity: '当前范围：当前 API 密钥身份',
-      currentIdentityWithName: '当前范围：当前 API 密钥身份（{{identity}}）',
+      currentIdentity: '当前范围：当前 API 密钥对应的身份',
+      currentIdentityWithName:
+        '当前范围：当前 API 密钥对应的身份（{{identity}}）',
     },
     status: {
       error: '错误',
@@ -204,7 +205,7 @@ const resources = {
       branch: '分支',
       'branch.placeholder': 'main',
       commit: '提交',
-      'commit.placeholder': '完整或缩短的提交 SHA',
+      'commit.placeholder': '完整或短格式的提交 SHA',
       auth: {
         title: '仓库访问方式',
         public: '公开仓库',
@@ -217,7 +218,8 @@ const resources = {
       'username.placeholder': 'oauth2',
       token: '访问令牌',
       'token.placeholder': '个人访问令牌',
-      'token.hint': '凭证通过请求体发送；开启定时同步后会保存到私有鉴权状态。',
+      'token.hint':
+        '凭证会随请求发送；开启定时同步后，还会保存在私有凭证存储中。',
     },
     web: {
       mode: {
@@ -311,7 +313,7 @@ const resources = {
       empty: '暂无处理任务',
       toggleError: '展开或收起错误详情',
       errors: {
-        tempUploadMissingId: '临时上传没有返回文件 ID。',
+        tempUploadMissingId: '临时上传未返回文件 ID。',
         cancelled: '处理已取消',
         failed: '处理失败',
       },
@@ -416,6 +418,7 @@ const resources = {
         noArguments: '无参数',
         rawMode: 'JSONL',
         recordCount: '{{count}} 条记录',
+        recordCount_other: '{{count}} 条记录',
         toolcall: '工具调用',
       },
     },
@@ -490,7 +493,7 @@ const resources = {
     detail: {
       score: '相关度',
       level: '层级',
-      openPlayground: '在实验场打开',
+      openPlayground: '在工作台中打开',
       uri: 'URI',
       summary: '摘要',
       noSummary: '暂无可展示的摘要',

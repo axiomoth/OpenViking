@@ -58,6 +58,26 @@ function CapabilityStatus({
 }) {
   const { t } = useTranslation('settings')
   const state = isLoading ? 'checking' : result?.state || 'skipped'
+  const detail = (() => {
+    switch (result?.detail) {
+      case 'Root admin control available':
+        return t('health.detail.rootAvailable')
+      case 'Account admin control available':
+        return t('health.detail.accountAdminAvailable')
+      case 'Tenant data access available':
+        return t('health.detail.tenantDataAvailable')
+      case 'Admin API requires API-key or trusted mode':
+        return t('health.detail.adminModeRequired')
+      case 'A root or account-admin API key is required':
+        return t('health.detail.controlKeyRequired')
+      case 'A user or account-admin API key is required':
+        return t('health.detail.dataKeyRequired')
+      case 'Trusted mode data access requires account and user':
+        return t('health.detail.trustedIdentityRequired')
+      default:
+        return result?.detail
+    }
+  })()
 
   return (
     <div
@@ -77,9 +97,9 @@ function CapabilityStatus({
             {t(`health.state.${state}`)}
           </span>
         </div>
-        {result?.detail ? (
+        {detail ? (
           <p className="mt-1 truncate text-xs text-muted-foreground">
-            {result.detail}
+            {detail}
           </p>
         ) : null}
       </div>
@@ -288,7 +308,9 @@ function ConnectionSettingsRoute() {
           ) : isUnsupportedAuthMode ? (
             <Alert variant="destructive" className="border-destructive/50">
               <TriangleAlertIcon className="size-5" />
-              <AlertTitle>{t('connection.unsupportedAuthMode.title')}</AlertTitle>
+              <AlertTitle>
+                {t('connection.unsupportedAuthMode.title')}
+              </AlertTitle>
               <AlertDescription className="grid gap-2">
                 <p>
                   {t('connection.unsupportedAuthMode.primary', {

@@ -1,7 +1,7 @@
 const workspace = {
   appShell: {
     footer: {
-      agentIntegrations: '智能体接入',
+      agentIntegrations: 'Agent 接入',
       connection: '连接设置',
       docs: '文档站',
       github: 'GitHub',
@@ -51,7 +51,7 @@ const workspace = {
         title: '会话',
       },
       playground: {
-        title: '实验场',
+        title: '工作台',
       },
     },
     sidebar: {
@@ -90,13 +90,17 @@ const workspace = {
       processing: '处理中',
       pending: '等待中',
       completed: '已完成',
+      processed: '已处理',
+      requeued: '重新入队',
       errors: '错误',
       totalRow: '合计',
-      embedding: '嵌入向量',
+      embedding: 'Embedding',
       semanticNodes: '语义节点',
       semantic: '语义处理',
       externalParse: '外部解析',
+      addResource: '添加资源',
       sessionCommit: '会话提交',
+      userDeletion: '删除用户',
     },
     tabs: {
       label: '监控类型',
@@ -110,13 +114,77 @@ const workspace = {
     },
     detail: {
       noData: '暂无监控数据',
+      columns: {
+        averageMs: '平均耗时（毫秒）',
+        calls: '调用次数',
+        collection: '集合',
+        completion: '输出 Token',
+        contextType: '上下文类型',
+        count: '次数',
+        indexCount: '索引数',
+        lastUpdated: '最后更新时间',
+        maximumMs: '最长耗时（毫秒）',
+        metric: '指标',
+        minimumMs: '最短耗时（毫秒）',
+        model: '模型',
+        operation: '操作',
+        prompt: '输入 Token',
+        provider: 'Provider',
+        queries: '查询次数',
+        status: '状态',
+        total: '合计',
+        value: '数值',
+        vectorCount: '向量数',
+      },
       descriptions: {
         queue: '资源处理、语义生成和会话提交队列。',
         vikingdb: '向量数据存储与索引服务。',
-        models: '视觉语言、嵌入和重排序模型服务。',
+        models: 'VLM、Embedding 和 Rerank 模型服务。',
         filesystem: 'OpenViking 文件系统与挂载点。',
         lock: '事务锁与并发控制服务。',
         retrieval: '上下文检索服务。',
+      },
+      metrics: {
+        averageLatency: '平均延迟（毫秒）',
+        averageResults: '平均每次查询结果数',
+        averageScore: '平均相关度',
+        maximumLatency: '最长延迟（毫秒）',
+        overallAverage: '总体平均耗时（毫秒）',
+        rerankFallback: 'Rerank 回退次数',
+        rerankUsed: 'Rerank 使用次数',
+        scoreRange: '相关度范围',
+        totalOperations: '操作总数',
+        totalQueries: '查询总数',
+        totalResults: '结果总数',
+        totalTime: '总耗时（秒）',
+        zeroResultQueries: '无结果查询次数',
+        zeroResultRate: '无结果查询占比',
+      },
+      statusText: {
+        activeLocks: '活动锁：{{count}}',
+        conflicts: '冲突：{{count}}',
+        embeddingModels: 'Embedding 模型：',
+        filesystemError: '获取文件系统统计数据失败：{{error}}',
+        filesystemUnavailable: '暂无文件系统统计数据。',
+        modelUsageUnavailable: '暂无模型用量数据。',
+        mount: '挂载点：{{path}}（插件：{{plugin}}）',
+        noCollections: '未找到集合。',
+        noFilesystemOperations: '尚未记录文件系统操作。',
+        notInitialized: '尚未初始化。',
+        queueUnavailable: '暂无队列状态数据。',
+        rerankModels: 'Rerank 模型：',
+        retrievalUnavailable: '尚未记录检索请求。',
+        staleLocksRemoved: '已清理的过期锁：{{count}}',
+        vikingdbUnavailable: 'VikingDB 管理器尚未初始化。',
+        vlmModels: 'VLM 模型：',
+        waitingLocks: '等待中的锁：{{count}}',
+      },
+      values: {
+        configured: '已配置',
+        error: '错误',
+        ok: '正常',
+        total: '合计',
+        unknown: '未知',
       },
     },
     offline: {
@@ -127,7 +195,7 @@ const workspace = {
   },
   skillsPage: {
     title: '技能',
-    description: '查看当前用户和当前空间可用的智能体技能。',
+    description: '查看当前用户和当前空间可用的 Agent 技能。',
     refresh: '刷新',
     loading: '正在加载技能...',
     empty: '暂无可用技能',
@@ -138,7 +206,7 @@ const workspace = {
     networkError: '无法连接 OpenViking 服务，请检查服务地址和连接状态。',
     connectionSettings: '打开连接设置',
     detail: '详情',
-    openPlayground: '在实验场打开',
+    openPlayground: '在工作台中打开',
     viewDetail: '查看 {{name}} 详情',
     detailLoading: '正在加载技能详情...',
     detailLoadFailed: '技能详情加载失败',
@@ -394,7 +462,7 @@ const workspace = {
       title: '服务端托管身份',
     },
     dialog: {
-      title: '连接与身份',
+      title: '连接设置',
     },
     identitySummary: {
       dev: '服务端隐式身份',
@@ -412,7 +480,7 @@ const workspace = {
       },
       adminApiKey: {
         label: '管理员 API 密钥',
-        placeholder: 'Root 或账号管理员密钥',
+        placeholder: 'Root 或账号管理员 API 密钥',
       },
       baseUrl: {
         label: '服务地址',
@@ -459,19 +527,19 @@ const workspace = {
         '当前密钥不能列出所有账号；如果它有账号管理员权限，仍可管理选中的账号。',
       adminError: 'Root API 密钥校验失败：{{message}}',
       description:
-        '租户数据 API 使用用户 API 密钥；控制 API 可单独使用 Root 或账号管理员密钥。',
-      devMode: '当前为开发模式——身份会自动确定，无需 API 密钥。',
+        '租户数据 API 使用用户 API 密钥；控制 API 可另行使用 Root 或账号管理员 API 密钥。',
+      devMode: '当前为开发模式，身份会自动确定，无需 API 密钥。',
       keyGuide: {
         control: {
           primary:
-            '当前用户 API 密钥已可用于实验场和数据访问，普通用户无需配置控制凭证。',
+            '当前用户 API 密钥已可用于工作台和数据访问，普通用户无需配置控制凭证。',
           secondary:
-            '如需切换账号或管理用户，请向部署管理员索取 Root 密钥，或向当前账号管理员索取管理员密钥。Root 密钥位于服务端 ov.conf 的 server.root_api_key。',
+            '如需切换账号或管理用户，请向部署管理员索取 Root API 密钥，或向当前账号管理员索取管理员 API 密钥。Root API 密钥位于服务端 ov.conf 的 server.root_api_key。',
           title: '需要管理账号或用户？',
         },
         data: {
           primary:
-            'Root/管理员 API 密钥主要用于管理操作，实验场和租户数据访问需要绑定用户身份的用户 API 密钥。',
+            'Root 或管理员 API 密钥主要用于管理操作；工作台和租户数据 API 需要绑定用户身份的用户 API 密钥。',
           secondary:
             '请在“用户管理”中选择或创建用户，或者重新生成用户密钥，然后将其用作用户 API 密钥。',
           title: '还缺少用户 API 密钥',
@@ -485,10 +553,10 @@ const workspace = {
         learnMore: '查看 API 密钥获取方式',
         trusted: {
           primary:
-            '当前受信任服务启用了 Root 密钥校验，浏览器需要配置相同的 Root API 密钥才能访问管理和租户数据接口。',
+            '当前 Trusted 服务启用了 Root API 密钥校验。浏览器需要配置相同的密钥，才能访问管理接口和租户数据接口。',
           secondary:
-            '请向部署管理员索取 Root 密钥；它位于服务端 ov.conf 的 server.root_api_key。受信任模式的数据身份由账号/用户断言确定，不需要用户 API 密钥。',
-          title: '受信任服务需要 Root API 密钥',
+            '请向部署管理员索取 Root API 密钥；它位于服务端 ov.conf 的 server.root_api_key。Trusted 模式的数据身份由账号和用户断言确定，不需要用户 API 密钥。',
+          title: 'Trusted 服务需要 Root API 密钥',
         },
       },
       rootHint: '用于列出账号和用户，以及生成或轮换密钥。',
@@ -499,7 +567,7 @@ const workspace = {
         primary: '该服务器配置了 {{mode}} 认证。',
         title: '不支持的认证模式',
       },
-      userHint: '供实验场和租户数据 API 使用。',
+      userHint: '供工作台和租户数据 API 使用。',
     },
     connectionPage: {
       description: '配置 OpenViking 服务连接、控制面凭证和当前数据访问凭证。',
@@ -562,6 +630,15 @@ const workspace = {
     health: {
       admin: '控制面权限',
       data: '数据访问',
+      detail: {
+        accountAdminAvailable: '账号管理员权限可用',
+        adminModeRequired: '管理 API 需要使用 API 密钥模式或 Trusted 模式',
+        controlKeyRequired: '需要 Root 或账号管理员 API 密钥',
+        dataKeyRequired: '需要用户或账号管理员 API 密钥',
+        rootAvailable: 'Root 管理权限可用',
+        tenantDataAvailable: '租户数据访问可用',
+        trustedIdentityRequired: 'Trusted 模式的数据访问需要账号和用户信息',
+      },
       state: {
         checking: '检查中',
         error: '异常',
@@ -584,9 +661,9 @@ const workspace = {
       currentAccountDescription: '管理 {{account}} 空间下的用户和访问凭证。',
       description: '查看选中账号下的用户和凭证，并在网页端新增用户或轮换密钥。',
       memberListDescription:
-        '“切换身份”会将该用户设为实验场、检索等数据页面的访问身份，不会改变当前 Root/管理员凭证。',
+        '“切换身份”会将该用户设为工作台、检索等数据页面的访问身份，不会改变当前 Root 或管理员凭证。',
       memberListDescriptionRoot:
-        '可直接修改成员角色；“切换身份”只会改变实验场、检索等数据页面的访问身份，不会改变当前 Root 管理凭证。',
+        '可直接修改成员角色。“切换身份”只会改变工作台、检索等数据页面的访问身份，不会改变当前 Root 管理凭证。',
       memberListTitle: '空间成员',
       cannotRemoveCurrentIdentity: '不能删除当前正在使用的身份。',
       cannotRemoveLastManager: '不能删除空间内最后一个管理员。',
@@ -599,11 +676,11 @@ const workspace = {
         '配置当前 OpenViking Studio 身份，并管理账号、用户和 API 密钥。',
       description:
         '配置当前 OpenViking Studio 的服务地址和 API 密钥，查看当前身份下的数据。',
-      title: '连接与身份',
+      title: '连接设置',
     },
     placeholders: {
       account: 'team-account',
-      adminApiKey: 'Root 或账号管理员密钥',
+      adminApiKey: 'Root 或账号管理员 API 密钥',
       apiKey: '输入 X-API-Key 或 Bearer 令牌',
       baseUrl: 'http://127.0.0.1:1933',
       devModeApiKey: '[开发模式，无需 API 密钥]',
@@ -612,7 +689,7 @@ const workspace = {
     },
     roles: {
       admin: '管理员',
-      root: '超级管理员',
+      root: 'Root',
       user: '用户',
     },
     serverMode: {
@@ -622,7 +699,7 @@ const workspace = {
       ldap: 'LDAP 模式',
       offline: '离线',
       oidc: 'OIDC 模式',
-      trusted: '受信任模式',
+      trusted: 'Trusted 模式',
     },
     stats: {
       accounts: '账号总数',
@@ -701,27 +778,27 @@ const workspace = {
     requestFailed: '请求失败',
     todayRetrievals: {
       description:
-        '展示用户或智能体今天成功调用语义检索 find() 和 search() 的次数，每天零点刷新。',
+        '展示今日成功调用语义检索 find() 和 search() 的次数，每天零点刷新。',
       find: 'find',
       search: 'search',
       title: '今日检索次数',
     },
     todayTokens: {
-      description: '展示今天的实时 Token 用量，每天零点刷新。',
-      embeddingInput: '嵌入模型输入 Token',
+      description: '展示今日实时 Token 用量，每天零点刷新。',
+      embeddingInput: 'Embedding 输入 Token',
       title: '今日 Token 用量',
-      vlmInput: '视觉语言模型输入 Token',
-      vlmOutput: '视觉语言模型输出 Token',
+      vlmInput: 'VLM 输入 Token',
+      vlmOutput: 'VLM 输出 Token',
     },
     tokenTrend: {
       description:
-        '展示最近 14 天每天的 Token 用量，包括视觉语言模型输入、输出和嵌入模型输入。',
+        '展示最近 14 天的每日 Token 用量，包括 VLM 输入、VLM 输出和 Embedding 输入。',
       empty: '最近 14 天暂无 Token 用量',
       title: 'Token 总用量统计',
     },
     usageDisabled: '用量和审计功能尚未初始化，暂无实时统计。',
     usageAccessRequired:
-      '当前连接没有管理员或 Root 权限，无法显示用量和审计数据。请在“连接与身份”中配置具备控制台用量和审计权限的 API 密钥。',
+      '当前连接没有管理员或 Root 权限，无法显示用量和审计数据。请在“连接设置”中配置具备控制台用量和审计权限的 API 密钥。',
   },
 } as const
 
