@@ -94,8 +94,7 @@ RUN --mount=type=cache,target=/root/.cache/uv,id=uv-${TARGETPLATFORM} \
             echo "Unsupported UV_LOCK_STRATEGY: ${UV_LOCK_STRATEGY}" >&2; \
             exit 2 \
             ;; \
-    esac && \
-    python -c "from importlib.resources import files; p = files('openviking.web_studio').joinpath('dist/index.html'); assert p.is_file(), f'missing Studio bundle: {p}'"
+    esac
 
 # Stage 4: runtime
 FROM python:3.13-slim-trixie
@@ -111,6 +110,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 COPY --from=py-builder /app/.venv /app/.venv
+RUN /app/.venv/bin/python -I -c "from importlib.resources import files; from pathlib import Path; p = Path(files('openviking.web_studio').joinpath('dist/index.html')).resolve(); root = Path('/app/.venv').resolve(); assert p.is_file() and p.is_relative_to(root), f'missing or misplaced Studio bundle: {p}'"
 COPY docker/openviking-entrypoint.sh /usr/local/bin/openviking-entrypoint
 COPY docker/pending_health_server.py /usr/local/bin/openviking-pending-health
 RUN mkdir -p /app/.openviking \
