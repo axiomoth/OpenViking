@@ -110,7 +110,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 COPY --from=py-builder /app/.venv /app/.venv
-RUN /app/.venv/bin/python -I -c "from importlib.resources import files; from pathlib import Path; p = Path(files('openviking.web_studio').joinpath('dist/index.html')).resolve(); root = Path('/app/.venv').resolve(); assert p.is_file() and p.is_relative_to(root), f'missing or misplaced Studio bundle: {p}'"
+RUN /app/.venv/bin/python -I -c "from importlib.util import find_spec; from pathlib import Path; spec = find_spec('openviking.web_studio'); assert spec and spec.origin, 'missing Studio package'; root = Path('/app/.venv').resolve(); p = (Path(spec.origin).resolve().parent / 'dist/index.html').resolve(); assert p.is_file() and p.is_relative_to(root), f'missing or misplaced Studio bundle: {p}'"
 COPY docker/openviking-entrypoint.sh /usr/local/bin/openviking-entrypoint
 COPY docker/pending_health_server.py /usr/local/bin/openviking-pending-health
 RUN mkdir -p /app/.openviking \
