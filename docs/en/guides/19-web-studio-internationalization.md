@@ -1,10 +1,17 @@
-# Web Studio internationalization guide
+# Web Studio Internationalization
 
-English / [中文](/zh/guides/19-web-studio-internationalization)
+Web Studio supports English and Simplified Chinese. This guide is for contributors who add or change user-visible text in `web-studio`. A change is complete only when both languages are usable.
 
-Web Studio supports English and Simplified Chinese. A feature with user-visible text is complete only when both languages are usable. Add or update both translations in the same change.
+Start by identifying where the text comes from:
 
-## Translation resources
+| Text Source                                                 | Required Treatment                                                                     |
+| ----------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| Static interface copy                                       | Add matching English and Simplified Chinese keys, then render with `t()` or `<Trans>`. |
+| Stable server enum, status, metric, or display header       | Map the known value to an i18n key in a localization adapter.                          |
+| Model name, path, URI, identifier, command, or user content | Preserve the original value unless the product defines a display name.                 |
+| Raw server error or diagnostic payload                      | Localize the user-facing summary and keep the original detail available for diagnosis. |
+
+## Translation Resources
 
 From the repository root, translation resources live under:
 
@@ -25,7 +32,7 @@ resources.retrieval.emptyTitle
 
 Do not use the English sentence as the key. Do not reuse a short key when the same word has a different meaning elsewhere.
 
-## Adding interface text
+## Adding Interface Text
 
 Add the key to both locale resources before using it in a component:
 
@@ -61,7 +68,7 @@ i18n.language.startsWith('zh') ? '刷新' : 'Refresh'
 
 Language branches are appropriate for locale-specific behavior such as documentation URLs or date formatting, not for choosing interface copy.
 
-## Text received from the server
+## Text Received from the Server
 
 Do not translate arbitrary server output. A server value may be a model name, provider value, path, URI, identifier, command, or error detail.
 
@@ -76,15 +83,13 @@ When an endpoint returns display-oriented text such as an ASCII table:
 
 The monitoring page provides the local pattern:
 
-```text
-web-studio/src/routes/monitoring/-lib/parse-status.ts
-web-studio/src/routes/monitoring/-lib/localize-observer-status.ts
-web-studio/src/routes/monitoring/-components/observer-status-content.tsx
-```
+- [`parse-status.ts`](https://github.com/volcengine/OpenViking/blob/main/web-studio/src/routes/monitoring/-lib/parse-status.ts) parses the wire format.
+- [`localize-observer-status.ts`](https://github.com/volcengine/OpenViking/blob/main/web-studio/src/routes/monitoring/-lib/localize-observer-status.ts) maps stable server tokens to i18n keys.
+- [`observer-status-content.tsx`](https://github.com/volcengine/OpenViking/blob/main/web-studio/src/routes/monitoring/-components/observer-status-content.tsx) renders the localized model.
 
-The parser owns the wire format. The localization adapter owns the mapping from stable server tokens to i18n keys. The component owns layout. Do not copy those mappings into route components.
+Do not copy localization mappings into route components.
 
-## What to translate
+## What to Translate
 
 | Translate                                                  | Preserve unless the product defines a display label |
 | ---------------------------------------------------------- | --------------------------------------------------- |
@@ -95,7 +100,7 @@ The parser owns the wire format. The localization adapter owns the mapping from 
 
 Project terms such as `Agent`, `Root`, `Trusted`, `VikingBot`, `VLM`, and `Embedding` may remain in English when they name a product role or technical concept. Keep the same choice across pages.
 
-## Review checklist for a new feature
+## Pull Request Checklist
 
 Before requesting review, check the following:
 
@@ -115,15 +120,13 @@ Run checks that match the changed scope:
 
 ```bash
 cd web-studio
-npx prettier --check <changed-files>
-npx eslint <changed-files>
-npm test -- <relevant-tests>
+npm run format
+npm run lint
+npm test -- <relevant-test-files>
 ```
 
 Run `npm test` and `npm run build` when the change affects shared localization code, parsing, routing, or multiple pages. Report any skipped check and the reason.
 
-## Design references
+## Related Documentation
 
-- [i18next namespaces](https://www.i18next.com/principles/namespaces)
-- [Grafana internationalization guide](https://github.com/grafana/grafana/blob/main/contribute/internationalization.md)
-- [Dify i18n configuration](https://github.com/langgenius/dify/blob/main/web/i18n-config/README.md)
+- [Contributing to OpenViking](https://github.com/volcengine/OpenViking/blob/main/CONTRIBUTING.md) - contribution workflow and documentation requirements

@@ -1,8 +1,15 @@
-# Web Studio 国际化维护说明
+# Web Studio 国际化
 
-[English](/en/guides/19-web-studio-internationalization) / 中文
+Web Studio 支持英文和简体中文。本文面向在 `web-studio` 中新增或修改用户可见文本的贡献者。两种语言都能正常使用，这项改动才算完成。
 
-Web Studio 支持英文和简体中文。只要功能包含用户可见文本，就必须保证两种语言都能正常使用。同一次改动应同步添加或更新英文和中文。
+先确认文本来自哪里：
+
+| 文本来源                                    | 处理方式                                                   |
+| ------------------------------------------- | ---------------------------------------------------------- |
+| 固定界面文案                                | 同时添加英文和简体中文键，再通过 `t()` 或 `<Trans>` 渲染。 |
+| 稳定的服务端枚举、状态、指标或显示表头      | 在本地化适配器中把已知值映射到 i18n 键。                   |
+| 模型名称、路径、URI、标识符、命令或用户内容 | 除非产品定义了显示名称，否则保留原值。                     |
+| 服务端原始错误或诊断数据                    | 翻译面向用户的错误摘要，同时保留可供排查的原始详情。       |
 
 ## 翻译资源
 
@@ -76,13 +83,11 @@ i18n.language.startsWith('zh') ? '刷新' : 'Refresh'
 
 监控页面已经采用这一结构：
 
-```text
-web-studio/src/routes/monitoring/-lib/parse-status.ts
-web-studio/src/routes/monitoring/-lib/localize-observer-status.ts
-web-studio/src/routes/monitoring/-components/observer-status-content.tsx
-```
+- [`parse-status.ts`](https://github.com/volcengine/OpenViking/blob/main/web-studio/src/routes/monitoring/-lib/parse-status.ts) 负责解析传输格式。
+- [`localize-observer-status.ts`](https://github.com/volcengine/OpenViking/blob/main/web-studio/src/routes/monitoring/-lib/localize-observer-status.ts) 负责把稳定的服务端文本映射到 i18n 键。
+- [`observer-status-content.tsx`](https://github.com/volcengine/OpenViking/blob/main/web-studio/src/routes/monitoring/-components/observer-status-content.tsx) 负责渲染本地化后的数据。
 
-解析器负责传输格式，本地化适配器负责把稳定的服务端文本映射到 i18n 键，组件只负责布局。不要把这些映射重新写进路由组件。
+不要把本地化映射重新写进路由组件。
 
 ## 翻译范围
 
@@ -95,7 +100,7 @@ web-studio/src/routes/monitoring/-components/observer-status-content.tsx
 
 `Agent`、`Root`、`Trusted`、`VikingBot`、`VLM` 和 `Embedding` 等词在表示产品角色或技术概念时可以保留英文，但各页面必须保持一致。
 
-## 新功能审查清单
+## PR 审查清单
 
 提交审查前逐项确认：
 
@@ -115,15 +120,13 @@ web-studio/src/routes/monitoring/-components/observer-status-content.tsx
 
 ```bash
 cd web-studio
-npx prettier --check <changed-files>
-npx eslint <changed-files>
-npm test -- <relevant-tests>
+npm run format
+npm run lint
+npm test -- <relevant-test-files>
 ```
 
 改动涉及共享本地化代码、解析逻辑、路由或多个页面时，再运行 `npm test` 和 `npm run build`。未执行的检查及原因应如实说明。
 
-## 设计参考
+## 相关文档
 
-- [i18next namespaces](https://www.i18next.com/principles/namespaces)
-- [Grafana internationalization guide](https://github.com/grafana/grafana/blob/main/contribute/internationalization.md)
-- [Dify i18n configuration](https://github.com/langgenius/dify/blob/main/web/i18n-config/README.md)
+- [OpenViking 贡献指南](https://github.com/volcengine/OpenViking/blob/main/CONTRIBUTING_CN.md) - 贡献流程和文档要求
