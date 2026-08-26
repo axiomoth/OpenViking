@@ -105,7 +105,8 @@ export function UploadTaskDialog({
                   const isFailed = task.status === 'failed'
                   const isExpanded = expandedTaskIds.has(task.id)
                   const hasDetail =
-                    isFailed && (task.errorCode || task.errorMessage)
+                    isFailed &&
+                    (task.errorCode || task.errorMessage || task.errorDetail)
 
                   return (
                     <div
@@ -162,6 +163,12 @@ export function UploadTaskDialog({
                           {task.errorMessage ? (
                             <div className="text-black">
                               {task.errorMessage}
+                            </div>
+                          ) : null}
+                          {task.errorDetail &&
+                          task.errorDetail !== task.errorMessage ? (
+                            <div className="font-mono text-xs text-black">
+                              {task.errorDetail}
                             </div>
                           ) : null}
                         </div>

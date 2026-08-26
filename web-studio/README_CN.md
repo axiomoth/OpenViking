@@ -155,7 +155,7 @@ src/styles.css           全局样式和设计 token
 types/ov-server/         手工补充的服务端 typed result 子集
 ```
 
-页面私有实现应放在对应路由目录下。新增或修改用户可见文本时，应遵循[国际化维护说明](../docs/zh/guides/19-web-studio-internationalization.md)。
+页面私有实现应放在对应路由目录下。新增或修改用户可见文本时，应遵循 [Web Studio 国际化贡献指南](./CONTRIBUTING_CN.md)。
 
 ## 部署
 
@@ -381,6 +381,6 @@ openviking-server --with-bot
 
 ## 相关文档
 
-- [Web Studio 国际化维护说明](../docs/zh/guides/19-web-studio-internationalization.md)：翻译归属、服务端动态文本和审查清单。
+- [Web Studio 国际化贡献指南](./CONTRIBUTING_CN.md)：翻译归属、服务端动态文本和审查清单。
 - [OpenViking server deployment](../docs/en/guides/03-deployment.md)：服务端部署说明。
 - [VikingBot validation with OpenViking Server](../bot/docs/vikingbot-phase1-validation-with-openviking-server.md)：Bot proxy 验证流程。

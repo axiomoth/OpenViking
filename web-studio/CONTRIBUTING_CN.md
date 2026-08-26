@@ -1,4 +1,4 @@
-# Web Studio 国际化
+# 参与 Web Studio 国际化维护
 
 Web Studio 支持英文和简体中文。本文面向在 `web-studio` 中新增或修改用户可见文本的贡献者。两种语言都能正常使用，这项改动才算完成。
 
@@ -83,9 +83,9 @@ i18n.language.startsWith('zh') ? '刷新' : 'Refresh'
 
 监控页面已经采用这一结构：
 
-- [`parse-status.ts`](https://github.com/volcengine/OpenViking/blob/main/web-studio/src/routes/monitoring/-lib/parse-status.ts) 负责解析传输格式。
-- [`localize-observer-status.ts`](https://github.com/volcengine/OpenViking/blob/main/web-studio/src/routes/monitoring/-lib/localize-observer-status.ts) 负责把稳定的服务端文本映射到 i18n 键。
-- [`observer-status-content.tsx`](https://github.com/volcengine/OpenViking/blob/main/web-studio/src/routes/monitoring/-components/observer-status-content.tsx) 负责渲染本地化后的数据。
+- [`parse-status.ts`](./src/routes/monitoring/-lib/parse-status.ts) 负责解析传输格式。
+- [`localize-observer-status.ts`](./src/routes/monitoring/-lib/localize-observer-status.ts) 负责把稳定的服务端文本映射到 i18n 键。
+- [`observer-status-content.tsx`](./src/routes/monitoring/-components/observer-status-content.tsx) 负责渲染本地化后的数据。
 
 不要把本地化映射重新写进路由组件。
 
@@ -129,4 +129,4 @@ npm test -- <relevant-test-files>
 
 ## 相关文档
 
-- [OpenViking 贡献指南](https://github.com/volcengine/OpenViking/blob/main/CONTRIBUTING_CN.md) - 贡献流程和文档要求
+- [OpenViking 贡献指南](../CONTRIBUTING_CN.md)：仓库通用的贡献流程和要求。

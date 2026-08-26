@@ -10,7 +10,9 @@ const translations: Record<string, string> = {
   'detail.columns.value': '数值',
   'detail.metrics.totalOperations': '操作总数',
   'detail.statusText.mount': '挂载点：{{path}}（插件：{{plugin}}）',
+  'detail.values.total': '合计',
   'detail.values.unknown': '未知',
+  'queue.totalRow': '合计',
 }
 
 const t = ((key: string, options?: Record<string, unknown>) => {
@@ -65,5 +67,22 @@ describe('localizeObserverStatusBlocks', () => {
         value: '挂载点：/local（插件：localfs）',
       },
     ])
+  })
+
+  it('localizes total rows only in summary columns', () => {
+    const [block] = localizeObserverStatusBlocks(
+      [
+        {
+          headers: ['Queue', 'Collection', 'Provider', 'Model', 'Operation'],
+          kind: 'table',
+          rows: [['TOTAL', 'TOTAL', 'TOTAL', 'TOTAL', 'TOTAL']],
+        },
+      ],
+      t,
+    )
+
+    expect(block).toMatchObject({
+      rows: [['合计', '合计', 'TOTAL', 'TOTAL', 'TOTAL']],
+    })
   })
 })

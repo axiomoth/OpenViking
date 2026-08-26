@@ -28,6 +28,7 @@ import type { CapabilityProbeResult } from '#/lib/admin'
 import { DEFAULT_ACCOUNT_ID, DEFAULT_USER_ID } from '#/lib/admin-options'
 import { PLAIN_INPUT_PROPS } from '#/lib/form-input'
 import { cn } from '#/lib/utils'
+import { localizeCapabilityDetail } from './-lib/localize-capability-probe'
 import type { ConnectionDraft } from '#/hooks/use-app-connection'
 
 export const Route = createFileRoute('/settings')({
@@ -58,26 +59,7 @@ function CapabilityStatus({
 }) {
   const { t } = useTranslation('settings')
   const state = isLoading ? 'checking' : result?.state || 'skipped'
-  const detail = (() => {
-    switch (result?.detail) {
-      case 'Root admin control available':
-        return t('health.detail.rootAvailable')
-      case 'Account admin control available':
-        return t('health.detail.accountAdminAvailable')
-      case 'Tenant data access available':
-        return t('health.detail.tenantDataAvailable')
-      case 'Admin API requires API-key or trusted mode':
-        return t('health.detail.adminModeRequired')
-      case 'A root or account-admin API key is required':
-        return t('health.detail.controlKeyRequired')
-      case 'A user or account-admin API key is required':
-        return t('health.detail.dataKeyRequired')
-      case 'Trusted mode data access requires account and user':
-        return t('health.detail.trustedIdentityRequired')
-      default:
-        return result?.detail
-    }
-  })()
+  const detail = localizeCapabilityDetail(result, t)
 
   return (
     <div

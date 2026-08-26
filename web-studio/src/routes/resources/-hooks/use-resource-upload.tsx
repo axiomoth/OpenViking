@@ -47,6 +47,7 @@ export type ResourceUploadTask = {
   createdAt: number
   finishedAt: number | null
   errorCode: string | null
+  errorDetail?: string | null
   errorMessage: string | null
   errorMessageOrigin?: 'fallback' | 'server' | undefined
   rootUri: string | null

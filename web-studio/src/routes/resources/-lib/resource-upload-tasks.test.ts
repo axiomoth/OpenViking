@@ -16,10 +16,12 @@ function serverRecord(error?: string): TaskRecord {
 function previousTask(
   errorMessage: string,
   errorMessageOrigin?: ResourceUploadTask['errorMessageOrigin'],
+  errorDetail?: string,
 ): ResourceUploadTask {
   return {
     createdAt: 1,
     errorCode: 'SERVER_TASK_FAILED',
+    errorDetail,
     errorMessage,
     errorMessageOrigin,
     fileName: 'document.pdf',
@@ -38,13 +40,14 @@ function previousTask(
 describe('mergeServerTasks', () => {
   it('preserves an existing server error when a later record omits it', () => {
     const [task] = mergeServerTasks(
-      [previousTask('provider overloaded', 'server')],
+      [previousTask('provider overloaded', 'server', 'provider overloaded')],
       [serverRecord()],
       { cancelled: 'Cancelled', failed: 'Processing failed' },
     )
 
     expect(task.errorMessage).toBe('provider overloaded')
     expect(task.errorMessageOrigin).toBe('server')
+    expect(task.errorDetail).toBe('provider overloaded')
   })
 
   it('refreshes a generated fallback when the locale changes', () => {
@@ -56,6 +59,7 @@ describe('mergeServerTasks', () => {
 
     expect(task.errorMessage).toBe('处理失败')
     expect(task.errorMessageOrigin).toBe('fallback')
+    expect(task.errorDetail).toBeNull()
   })
 
   it('localizes the generic server processing error', () => {
@@ -67,6 +71,7 @@ describe('mergeServerTasks', () => {
 
     expect(task.errorMessage).toBe('处理失败')
     expect(task.errorMessageOrigin).toBe('fallback')
+    expect(task.errorDetail).toBe('resource processing failed')
   })
 
   it('preserves a detailed server error', () => {
@@ -77,5 +82,17 @@ describe('mergeServerTasks', () => {
 
     expect(task.errorMessage).toBe('provider overloaded')
     expect(task.errorMessageOrigin).toBe('server')
+    expect(task.errorDetail).toBe('provider overloaded')
+  })
+
+  it('keeps a detailed raw error when a later record is generic', () => {
+    const [task] = mergeServerTasks(
+      [previousTask('provider overloaded', 'server', 'provider overloaded')],
+      [serverRecord('resource processing failed')],
+      { cancelled: '已取消', failed: '处理失败' },
+    )
+
+    expect(task.errorMessage).toBe('provider overloaded')
+    expect(task.errorDetail).toBe('provider overloaded')
   })
 })

@@ -1,4 +1,4 @@
-# Web Studio Internationalization
+# Contributing to Web Studio Internationalization
 
 Web Studio supports English and Simplified Chinese. This guide is for contributors who add or change user-visible text in `web-studio`. A change is complete only when both languages are usable.
 
@@ -83,9 +83,9 @@ When an endpoint returns display-oriented text such as an ASCII table:
 
 The monitoring page provides the local pattern:
 
-- [`parse-status.ts`](https://github.com/volcengine/OpenViking/blob/main/web-studio/src/routes/monitoring/-lib/parse-status.ts) parses the wire format.
-- [`localize-observer-status.ts`](https://github.com/volcengine/OpenViking/blob/main/web-studio/src/routes/monitoring/-lib/localize-observer-status.ts) maps stable server tokens to i18n keys.
-- [`observer-status-content.tsx`](https://github.com/volcengine/OpenViking/blob/main/web-studio/src/routes/monitoring/-components/observer-status-content.tsx) renders the localized model.
+- [`parse-status.ts`](./src/routes/monitoring/-lib/parse-status.ts) parses the wire format.
+- [`localize-observer-status.ts`](./src/routes/monitoring/-lib/localize-observer-status.ts) maps stable server tokens to i18n keys.
+- [`observer-status-content.tsx`](./src/routes/monitoring/-components/observer-status-content.tsx) renders the localized model.
 
 Do not copy localization mappings into route components.
 
@@ -129,4 +129,4 @@ Run `npm test` and `npm run build` when the change affects shared localization c
 
 ## Related Documentation
 
-- [Contributing to OpenViking](https://github.com/volcengine/OpenViking/blob/main/CONTRIBUTING.md) - contribution workflow and documentation requirements
+- [Contributing to OpenViking](../CONTRIBUTING.md) - contribution workflow and repository-wide requirements.

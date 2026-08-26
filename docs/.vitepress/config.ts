@@ -432,10 +432,6 @@ const guidesSidebar = {
           ['15-snapshot.md', 'Snapshots'],
           ['16-cuvs.md', 'cuVS Vector Search']
         ]
-      },
-      {
-        text: 'Development',
-        items: [['19-web-studio-internationalization.md', 'Web Studio Internationalization']]
       }
     ]
   },
@@ -480,10 +476,6 @@ const guidesSidebar = {
           ['15-snapshot.md', '快照管理'],
           ['16-cuvs.md', 'cuVS 向量检索']
         ]
-      },
-      {
-        text: '开发',
-        items: [['19-web-studio-internationalization.md', 'Web Studio 国际化']]
       }
     ]
   }

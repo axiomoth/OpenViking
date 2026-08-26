@@ -100,7 +100,9 @@ function localizeCell(
     return translateMappedValue(cell.toLowerCase(), queueKeys, t)
   }
   if (header === 'Metric') return translateMappedValue(cell, metricKeys, t)
-  if (cell === 'TOTAL') return t('detail.values.total')
+  if (header === 'Collection' && cell === 'TOTAL') {
+    return t('detail.values.total')
+  }
 
   if (header === 'Status') {
     if (cell === 'OK') return t('detail.values.ok')
